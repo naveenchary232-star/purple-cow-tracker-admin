@@ -1,0 +1,494 @@
+import React, { useState, useEffect } from 'react';
+import { Package, Truck, CheckCircle, Calendar, User, Phone, MapPin, Plus, Search, Copy } from 'lucide-react';
+
+export default function LaundryTracker() {
+  const [customers, setCustomers] = useState([]);
+  const [showAddCustomer, setShowAddCustomer] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [copiedCode, setCopiedCode] = useState(null);
+  const [newCustomer, setNewCustomer] = useState({
+    name: '',
+    phone: '',
+    address: '',
+    plan: '2699',
+    startDate: new Date().toISOString().split('T')[0]
+  });
+
+  useEffect(() => {
+    loadCustomers();
+  }, []);
+
+  useEffect(() => {
+    if (!loading && customers.length > 0) {
+      saveCustomers();
+    }
+  }, [customers, loading]);
+
+  const loadCustomers = async () => {
+    try {
+      const result = await window.storage.get('laundry-customers', true);
+      if (result && result.value) {
+        setCustomers(JSON.parse(result.value));
+      }
+    } catch (error) {
+      console.log('No existing data found, starting fresh');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveCustomers = async () => {
+    try {
+      await window.storage.set('laundry-customers', JSON.stringify(customers), true);
+    } catch (error) {
+      console.error('Failed to save data:', error);
+    }
+  };
+
+  const generateCode = () => {
+    return Math.floor(1000 + Math.random() * 9000).toString();
+  };
+
+  const sendWhatsAppNotification = (phone, customerName, washNumber, type, code, completedWashes) => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopiedCode(code);
+      setTimeout(() => setCopiedCode(null), 2000);
+    }).catch(err => {
+      console.error('Failed to copy:', err);
+    });
+    
+    let cleanPhone = phone.replace(/[^0-9]/g, '');
+    
+    if (!cleanPhone.startsWith('91') && cleanPhone.length === 10) {
+      cleanPhone = '91' + cleanPhone;
+    }
+    
+    const currentDate = new Date().toLocaleDateString('en-IN', { 
+      day: '2-digit', 
+      month: '2-digit', 
+      year: 'numeric' 
+    });
+    
+    let message = '';
+    if (type === 'pickup') {
+      message = `✨ *PURPLE COW LAUNDRY* 🐄💜
+━━━━━━━━━━━━━━━━━━━━
+
+👋 Hello *${customerName}*!
+
+📦 *PICKUP CONFIRMED!* ✅
+
+🔢 *Order ID:* #${code}
+🧺 *Wash Number:* ${washNumber}/10
+📊 *Progress:* ${completedWashes}/10 Completed
+📅 *Date:* ${currentDate}
+
+━━━━━━━━━━━━━━━━━━━━
+
+✨ Your clothes are now in our care!
+🧼 Premium wash & dry service
+⏰ We'll notify you for delivery
+
+💡 *Track your order with ID:* #${code}
+
+━━━━━━━━━━━━━━━━━━━━
+🙏 Thank you for choosing Purple Cow!
+🚀 India's Most Trusted Laundry Service`;
+    } else if (type === 'delivery') {
+      const remainingWashes = 10 - completedWashes;
+      const completionBonus = completedWashes === 10 
+        ? `🎊 *CONGRATULATIONS!* All 10 washes completed! 🎊
+
+` 
+        : `💡 *Remaining washes:* ${remainingWashes} more to go!
+
+`;
+      
+      message = `✨ *PURPLE COW LAUNDRY* 🐄💜
+━━━━━━━━━━━━━━━━━━━━
+
+👋 Hello *${customerName}*!
+
+🎉 *DELIVERY COMPLETED!* ✅
+
+🔢 *Order ID:* #${code}
+🧺 *Wash Number:* ${washNumber}/10
+📊 *Progress:* ${completedWashes}/10 Completed
+📅 *Delivered:* ${currentDate}
+
+━━━━━━━━━━━━━━━━━━━━
+
+✨ Your fresh, clean laundry is delivered!
+👕 Washed, dried & neatly folded
+😊 Hope you love our service
+
+${completionBonus}━━━━━━━━━━━━━━━━━━━━
+🙏 Thank you for trusting Purple Cow!
+📞 Call us anytime for next pickup!`;
+    }
+    
+    const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+    window.open(whatsappUrl, '_blank');
+  };
+
+  const addCustomer = () => {
+    if (newCustomer.name && newCustomer.phone) {
+      const customer = {
+        id: Date.now(),
+        ...newCustomer,
+        washes: Array(10).fill(null).map((_, i) => ({
+          washNumber: i + 1,
+          status: 'pending',
+          pickupDate: null,
+          deliveryDate: null,
+          pickupCode: null,
+          deliveryCode: null
+        }))
+      };
+      setCustomers([...customers, customer]);
+      setNewCustomer({
+        name: '',
+        phone: '',
+        address: '',
+        plan: '2699',
+        startDate: new Date().toISOString().split('T')[0]
+      });
+      setShowAddCustomer(false);
+    }
+  };
+
+  const updateWashStatus = (customerId, washNumber, status, dateType = null) => {
+    setCustomers(customers.map(customer => {
+      if (customer.id === customerId) {
+        const updatedWashes = customer.washes.map(wash => {
+          if (wash.washNumber === washNumber) {
+            const updatedWash = { ...wash, status };
+            if (dateType === 'pickup' && status === 'picked-up') {
+              updatedWash.pickupDate = new Date().toISOString().split('T')[0];
+              updatedWash.pickupCode = generateCode();
+              const completedCount = customer.washes.filter(w => w.status === 'delivered').length;
+              setTimeout(() => {
+                sendWhatsAppNotification(customer.phone, customer.name, washNumber, 'pickup', updatedWash.pickupCode, completedCount);
+              }, 100);
+            } else if (dateType === 'delivery' && status === 'delivered') {
+              updatedWash.deliveryDate = new Date().toISOString().split('T')[0];
+              updatedWash.deliveryCode = generateCode();
+              const completedCount = customer.washes.filter(w => w.status === 'delivered').length + 1;
+              setTimeout(() => {
+                sendWhatsAppNotification(customer.phone, customer.name, washNumber, 'delivery', updatedWash.deliveryCode, completedCount);
+              }, 100);
+            }
+            return updatedWash;
+          }
+          return wash;
+        });
+        return { ...customer, washes: updatedWashes };
+      }
+      return customer;
+    }));
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'pending': return 'bg-gray-200 text-gray-700';
+      case 'picked-up': return 'bg-blue-500 text-white';
+      case 'delivered': return 'bg-green-500 text-white';
+      default: return 'bg-gray-200 text-gray-700';
+    }
+  };
+
+  const getCompletedWashes = (customer) => {
+    return customer.washes.filter(w => w.status === 'delivered').length;
+  };
+
+  const filteredCustomers = customers.filter(customer =>
+    customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    customer.phone.includes(searchTerm)
+  );
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-4">
+      {copiedCode && (
+        <div className="fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 z-50 animate-bounce">
+          <Copy size={20} />
+          <span className="font-semibold">Order ID #{copiedCode} Copied!</span>
+        </div>
+      )}
+      
+      {loading ? (
+        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 flex items-center justify-center p-4">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-500 mx-auto mb-4"></div>
+            <p className="text-gray-300 text-lg">Loading your data...</p>
+          </div>
+        </div>
+      ) : (
+        <div className="max-w-7xl mx-auto">
+        <div className="bg-gray-800 rounded-lg shadow-2xl p-6 mb-6 border border-purple-500/30">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h1 className="text-3xl font-bold text-purple-400 flex items-center gap-2">
+                🐄💜 Purple Cow Laundry Tracker
+              </h1>
+              <p className="text-gray-300 mt-1">Track pickup, delivery & 10-wash completion</p>
+            </div>
+            <button
+              onClick={() => setShowAddCustomer(!showAddCustomer)}
+              className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg flex items-center gap-2 transition shadow-lg"
+            >
+              <Plus size={20} />
+              Add Customer
+            </button>
+          </div>
+
+          <div className="relative">
+            <Search className="absolute left-3 top-3 text-gray-400" size={20} />
+            <input
+              type="text"
+              placeholder="Search by name or phone..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-gray-400"
+            />
+          </div>
+        </div>
+
+        {showAddCustomer && (
+          <div className="bg-gray-800 rounded-lg shadow-2xl p-6 mb-6 border border-purple-500/30">
+            <h2 className="text-xl font-bold text-purple-400 mb-4">Add New Customer</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <User size={16} className="inline mr-1" />
+                  Customer Name *
+                </label>
+                <input
+                  type="text"
+                  value={newCustomer.name}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })}
+                  className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white placeholder-gray-400"
+                  placeholder="Enter name"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <Phone size={16} className="inline mr-1" />
+                  Phone Number *
+                </label>
+                <input
+                  type="tel"
+                  value={newCustomer.phone}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })}
+                  className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white placeholder-gray-400"
+                  placeholder="Enter phone"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <MapPin size={16} className="inline mr-1" />
+                  Address
+                </label>
+                <input
+                  type="text"
+                  value={newCustomer.address}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, address: e.target.value })}
+                  className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white placeholder-gray-400"
+                  placeholder="Enter full address for Google Maps"
+                />
+                <p className="text-xs text-gray-400 mt-1">💡 Tip: Include area, landmark, and pincode for accurate navigation</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <Calendar size={16} className="inline mr-1" />
+                  Start Date
+                </label>
+                <input
+                  type="date"
+                  value={newCustomer.startDate}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, startDate: e.target.value })}
+                  className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Plan</label>
+                <input
+                  type="text"
+                  value={`₹${newCustomer.plan}/-`}
+                  disabled
+                  className="w-full px-4 py-2 border border-gray-600 rounded-lg bg-gray-900 text-gray-300"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={addCustomer}
+                className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition shadow-lg"
+              >
+                Save Customer
+              </button>
+              <button
+                onClick={() => setShowAddCustomer(false)}
+                className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {filteredCustomers.length === 0 ? (
+          <div className="bg-gray-800 rounded-lg shadow-2xl p-12 text-center border border-purple-500/30">
+            <Package size={64} className="mx-auto text-gray-600 mb-4" />
+            <h3 className="text-xl font-semibold text-gray-300 mb-2">No Customers Yet</h3>
+            <p className="text-gray-400">Click "Add Customer" to get started!</p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {filteredCustomers.map(customer => {
+              const completedWashes = getCompletedWashes(customer);
+              const progressPercent = (completedWashes / 10) * 100;
+
+              return (
+                <div key={customer.id} className="bg-gray-800 rounded-lg shadow-2xl p-6 border border-purple-500/30">
+                  <div className="flex items-start justify-between mb-4 pb-4 border-b border-gray-700">
+                    <div>
+                      <h3 className="text-xl font-bold text-purple-400">{customer.name}</h3>
+                      <p className="text-gray-300 flex items-center gap-2 mt-1">
+                        <Phone size={16} /> {customer.phone}
+                      </p>
+                      {customer.address && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <MapPin size={16} className="text-gray-400" />
+                          <span className="text-gray-300">{customer.address}</span>
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(customer.address)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs flex items-center gap-1 transition shadow-lg"
+                          >
+                            🗺️ Navigate
+                          </a>
+                        </div>
+                      )}
+                      <p className="text-gray-300 flex items-center gap-2 mt-1">
+                        <Calendar size={16} /> Started: {customer.startDate}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <div className="bg-purple-600 text-white px-4 py-2 rounded-lg font-bold shadow-lg">
+                        ₹{customer.plan}/-
+                      </div>
+                      <div className="mt-2 text-sm text-gray-300">
+                        {completedWashes}/10 Washes
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mb-4">
+                    <div className="flex justify-between text-sm text-gray-300 mb-2">
+                      <span>Completion Progress</span>
+                      <span className="font-semibold">{progressPercent.toFixed(0)}%</span>
+                    </div>
+                    <div className="w-full bg-gray-700 rounded-full h-3">
+                      <div
+                        className="bg-gradient-to-r from-purple-500 to-blue-500 h-3 rounded-full transition-all duration-500 shadow-lg"
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                    {customer.washes.map(wash => (
+                      <div key={wash.washNumber} className="border border-gray-600 rounded-lg p-3 bg-gray-700/50">
+                        <div className="text-center mb-2">
+                          <span className="font-bold text-purple-300">Wash #{wash.washNumber}</span>
+                        </div>
+                        
+                        <div className={`${getStatusColor(wash.status)} px-2 py-1 rounded text-xs text-center mb-2 font-semibold`}>
+                          {wash.status.toUpperCase()}
+                        </div>
+
+                        {wash.status === 'pending' && (
+                          <button
+                            onClick={() => updateWashStatus(customer.id, wash.washNumber, 'picked-up', 'pickup')}
+                            className="w-full bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs flex items-center justify-center gap-1 transition shadow-lg"
+                          >
+                            <Truck size={12} /> Pickup
+                          </button>
+                        )}
+
+                        {wash.status === 'picked-up' && (
+                          <>
+                            <div 
+                              onClick={() => {
+                                navigator.clipboard.writeText(wash.pickupCode);
+                                setCopiedCode(wash.pickupCode);
+                                setTimeout(() => setCopiedCode(null), 2000);
+                              }}
+                              className="text-xs bg-blue-600 text-white px-2 py-1 rounded font-bold mb-1 cursor-pointer hover:bg-blue-700 transition flex items-center justify-center gap-1"
+                              title="Click to copy"
+                            >
+                              📦 #{wash.pickupCode} <Copy size={10} />
+                            </div>
+                            {wash.pickupDate && (
+                              <div className="text-xs text-gray-300 mb-1">
+                                📅 {wash.pickupDate}
+                              </div>
+                            )}
+                            <button
+                              onClick={() => updateWashStatus(customer.id, wash.washNumber, 'delivered', 'delivery')}
+                              className="w-full bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs flex items-center justify-center gap-1 transition shadow-lg"
+                            >
+                              <CheckCircle size={12} /> Deliver
+                            </button>
+                          </>
+                        )}
+
+                        {wash.status === 'delivered' && (
+                          <div className="text-xs text-gray-300 space-y-1">
+                            <div 
+                              onClick={() => {
+                                navigator.clipboard.writeText(wash.pickupCode);
+                                setCopiedCode(wash.pickupCode);
+                                setTimeout(() => setCopiedCode(null), 2000);
+                              }}
+                              className="bg-blue-600 text-white px-2 py-1 rounded font-bold cursor-pointer hover:bg-blue-700 transition flex items-center justify-center gap-1"
+                              title="Click to copy"
+                            >
+                              📦 #{wash.pickupCode} <Copy size={10} />
+                            </div>
+                            {wash.pickupDate && <div>📅 {wash.pickupDate}</div>}
+                            <div 
+                              onClick={() => {
+                                navigator.clipboard.writeText(wash.deliveryCode);
+                                setCopiedCode(wash.deliveryCode);
+                                setTimeout(() => setCopiedCode(null), 2000);
+                              }}
+                              className="bg-green-600 text-white px-2 py-1 rounded font-bold mt-2 cursor-pointer hover:bg-green-700 transition flex items-center justify-center gap-1"
+                              title="Click to copy"
+                            >
+                              ✅ #{wash.deliveryCode} <Copy size={10} />
+                            </div>
+                            {wash.deliveryDate && <div>📅 {wash.deliveryDate}</div>}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {completedWashes === 10 && (
+                    <div className="mt-4 bg-gradient-to-r from-green-600 to-blue-600 text-white px-4 py-3 rounded-lg text-center font-bold shadow-lg">
+                      🎉 All 10 Washes Completed! 🎉
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        </div>
+      )}
+    </div>
+  );
+}
