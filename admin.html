@@ -35,8 +35,17 @@
     };
 
     // Initialize Firebase
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
+    let db;
+    let firebaseInitialized = false;
+
+    try {
+      firebase.initializeApp(firebaseConfig);
+      db = firebase.firestore();
+      firebaseInitialized = true;
+      console.log('✅ Firebase initialized successfully');
+    } catch (error) {
+      console.error('❌ Firebase initialization error:', error);
+    }
 
     // ============================================
     // LAUNDRY TRACKER APPLICATION
@@ -47,6 +56,7 @@
       searchTerm: '',
       loading: true,
       copiedCode: null,
+      saving: false,
       newCustomer: {
         name: '',
         phone: '',
@@ -56,19 +66,29 @@
       },
 
       async init() {
+        console.log('🚀 Initializing app...');
+        if (!firebaseInitialized) {
+          this.loading = false;
+          this.render();
+          alert('Firebase initialization failed. Please check your internet connection and refresh.');
+          return;
+        }
         await this.loadCustomers();
         this.render();
       },
 
       async loadCustomers() {
+        console.log('📦 Loading customers...');
         try {
           const snapshot = await db.collection('customers').orderBy('startDate', 'desc').get();
           this.customers = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data()
           }));
+          console.log(`✅ Loaded ${this.customers.length} customers`);
         } catch (error) {
-          console.error('Error loading customers:', error);
+          console.error('❌ Error loading customers:', error);
+          console.error('Error details:', error.message);
         } finally {
           this.loading = false;
           this.render();
@@ -76,13 +96,29 @@
       },
 
       async addCustomer() {
+        console.log('💾 Attempting to save customer...');
+        
+        // Validation
         if (!this.newCustomer.name || !this.newCustomer.phone) {
           alert('Please enter name and phone number');
+          console.warn('⚠️ Validation failed: Missing name or phone');
           return;
         }
 
+        if (!firebaseInitialized) {
+          alert('Firebase is not initialized. Please refresh the page.');
+          return;
+        }
+
+        this.saving = true;
+        this.render();
+
         const customer = {
-          ...this.newCustomer,
+          name: this.newCustomer.name.trim(),
+          phone: this.newCustomer.phone.trim(),
+          address: this.newCustomer.address.trim(),
+          plan: this.newCustomer.plan,
+          startDate: this.newCustomer.startDate,
           washes: Array(10).fill(null).map((_, i) => ({
             washNumber: i + 1,
             status: 'pending',
@@ -94,9 +130,17 @@
           createdAt: firebase.firestore.FieldValue.serverTimestamp()
         };
 
+        console.log('📝 Customer data:', customer);
+
         try {
+          console.log('⏳ Saving to Firestore...');
           const docRef = await db.collection('customers').add(customer);
+          console.log('✅ Customer saved with ID:', docRef.id);
+          
+          // Add to local array
           this.customers.unshift({ id: docRef.id, ...customer });
+          
+          // Reset form
           this.newCustomer = {
             name: '',
             phone: '',
@@ -104,11 +148,24 @@
             plan: '2699',
             startDate: new Date().toISOString().split('T')[0]
           };
+          
           this.showAddCustomer = false;
+          this.saving = false;
           this.render();
+          
+          alert('✅ Customer added successfully!');
         } catch (error) {
-          console.error('Error adding customer:', error);
-          alert('Failed to add customer. Please try again.');
+          console.error('❌ Error adding customer:', error);
+          console.error('Error code:', error.code);
+          console.error('Error message:', error.message);
+          this.saving = false;
+          this.render();
+          
+          if (error.code === 'permission-denied') {
+            alert('❌ Permission denied. Please check your Firestore security rules.');
+          } else {
+            alert('❌ Failed to add customer: ' + error.message);
+          }
         }
       },
 
@@ -196,12 +253,20 @@ ${completionBonus}━━━━━━━━━━━━━━━━━━━━
       },
 
       async updateWashStatus(customerId, washNumber, status, dateType = null) {
+        console.log(`🔄 Updating wash status: Customer ${customerId}, Wash #${washNumber}, Status: ${status}`);
+        
         const customerIndex = this.customers.findIndex(c => c.id === customerId);
-        if (customerIndex === -1) return;
+        if (customerIndex === -1) {
+          console.error('❌ Customer not found');
+          return;
+        }
 
         const customer = this.customers[customerIndex];
         const washIndex = customer.washes.findIndex(w => w.washNumber === washNumber);
-        if (washIndex === -1) return;
+        if (washIndex === -1) {
+          console.error('❌ Wash not found');
+          return;
+        }
 
         const wash = { ...customer.washes[washIndex], status };
 
@@ -228,9 +293,10 @@ ${completionBonus}━━━━━━━━━━━━━━━━━━━━
           await db.collection('customers').doc(customerId).update({
             washes: customer.washes
           });
+          console.log('✅ Wash status updated successfully');
           this.render();
         } catch (error) {
-          console.error('Error updating wash status:', error);
+          console.error('❌ Error updating wash status:', error);
           alert('Failed to update status. Please try again.');
         }
       },
@@ -382,12 +448,14 @@ ${completionBonus}━━━━━━━━━━━━━━━━━━━━
                     <div class="flex gap-3 mt-4">
                       <button
                         onclick="App.addCustomer()"
-                        class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition shadow-lg"
+                        ${this.saving ? 'disabled' : ''}
+                        class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition shadow-lg ${this.saving ? 'opacity-50 cursor-not-allowed' : ''}"
                       >
-                        Save Customer
+                        ${this.saving ? '⏳ Saving...' : '💾 Save Customer'}
                       </button>
                       <button
                         onclick="App.showAddCustomer = false; App.render();"
+                        ${this.saving ? 'disabled' : ''}
                         class="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg transition"
                       >
                         Cancel
