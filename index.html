@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Purple Cow Laundry Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <style>
+    @keyframes bounce {
+      0%, 100% { transform: translateY(-25%); }
+      50% { transform: translateY(0); }
+    }
+    .animate-bounce {
+      animation: bounce 1s infinite;
+    }
+  </style>
+</head>
+<body class="bg-gray-900">
+  <div id="root"></div>
+
+  <script>
+    // ============================================
+    // FIREBASE CONFIGURATION
+    // ============================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyDq2RmiPonqPQPC2zkHZEUhzDxiLS1sLNE",
+      authDomain: "purple-cow-admin.firebaseapp.com",
+      projectId: "purple-cow-admin",
+      storageBucket: "purple-cow-admin.firebasestorage.app",
+      messagingSenderId: "212770562686",
+      appId: "1:212770562686:web:d2657b8c58d49fa57e2e2f",
+      measurementId: "G-X503E1728Y"
+    };
+
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // ============================================
+    // LAUNDRY TRACKER APPLICATION
+    // ============================================
+    const App = {
+      customers: [],
+      showAddCustomer: false,
+      searchTerm: '',
+      loading: true,
+      copiedCode: null,
+      newCustomer: {
+        name: '',
+        phone: '',
+        address: '',
+        plan: '2699',
+        startDate: new Date().toISOString().split('T')[0]
+      },
+
+      async init() {
+        await this.loadCustomers();
+        this.render();
+      },
+
+      async loadCustomers() {
+        try {
+          const snapshot = await db.collection('customers').orderBy('startDate', 'desc').get();
+          this.customers = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }));
+        } catch (error) {
+          console.error('Error loading customers:', error);
+        } finally {
+          this.loading = false;
+          this.render();
+        }
+      },
+
+      async addCustomer() {
+        if (!this.newCustomer.name || !this.newCustomer.phone) {
+          alert('Please enter name and phone number');
+          return;
+        }
+
+        const customer = {
+          ...this.newCustomer,
+          washes: Array(10).fill(null).map((_, i) => ({
+            washNumber: i + 1,
+            status: 'pending',
+            pickupDate: null,
+            deliveryDate: null,
+            pickupCode: null,
+            deliveryCode: null
+          })),
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        try {
+          const docRef = await db.collection('customers').add(customer);
+          this.customers.unshift({ id: docRef.id, ...customer });
+          this.newCustomer = {
+            name: '',
+            phone: '',
+            address: '',
+            plan: '2699',
+            startDate: new Date().toISOString().split('T')[0]
+          };
+          this.showAddCustomer = false;
+          this.render();
+        } catch (error) {
+          console.error('Error adding customer:', error);
+          alert('Failed to add customer. Please try again.');
+        }
+      },
+
+      generateCode() {
+        return Math.floor(1000 + Math.random() * 9000).toString();
+      },
+
+      sendWhatsAppNotification(phone, customerName, washNumber, type, code, completedWashes) {
+        navigator.clipboard.writeText(code).then(() => {
+          this.copiedCode = code;
+          this.render();
+          setTimeout(() => {
+            this.copiedCode = null;
+            this.render();
+          }, 2000);
+        }).catch(err => console.error('Failed to copy:', err));
+        
+        let cleanPhone = phone.replace(/[^0-9]/g, '');
+        if (!cleanPhone.startsWith('91') && cleanPhone.length === 10) {
+          cleanPhone = '91' + cleanPhone;
+        }
+        
+        const currentDate = new Date().toLocaleDateString('en-IN', { 
+          day: '2-digit', 
+          month: '2-digit', 
+          year: 'numeric' 
+        });
+        
+        let message = '';
+        if (type === 'pickup') {
+          message = `✨ *PURPLE COW LAUNDRY* 🐄💜
+━━━━━━━━━━━━━━━━━━━━
+
+👋 Hello *${customerName}*!
+
+📦 *PICKUP CONFIRMED!* ✅
+
+🔢 *Order ID:* #${code}
+🧺 *Wash Number:* ${washNumber}/10
+📊 *Progress:* ${completedWashes}/10 Completed
+📅 *Date:* ${currentDate}
+
+━━━━━━━━━━━━━━━━━━━━
+
+✨ Your clothes are now in our care!
+🧼 Premium wash & dry service
+⏰ We'll notify you for delivery
+
+💡 *Track your order with ID:* #${code}
+
+━━━━━━━━━━━━━━━━━━━━
+🙏 Thank you for choosing Purple Cow!
+🚀 India's Most Trusted Laundry Service`;
+        } else if (type === 'delivery') {
+          const remainingWashes = 10 - completedWashes;
+          const completionBonus = completedWashes === 10 
+            ? `🎊 *CONGRATULATIONS!* All 10 washes completed! 🎊\n\n` 
+            : `💡 *Remaining washes:* ${remainingWashes} more to go!\n\n`;
+          
+          message = `✨ *PURPLE COW LAUNDRY* 🐄💜
+━━━━━━━━━━━━━━━━━━━━
+
+👋 Hello *${customerName}*!
+
+🎉 *DELIVERY COMPLETED!* ✅
+
+🔢 *Order ID:* #${code}
+🧺 *Wash Number:* ${washNumber}/10
+📊 *Progress:* ${completedWashes}/10 Completed
+📅 *Delivered:* ${currentDate}
+
+━━━━━━━━━━━━━━━━━━━━
+
+✨ Your fresh, clean laundry is delivered!
+👕 Washed, dried & neatly folded
+😊 Hope you love our service
+
+${completionBonus}━━━━━━━━━━━━━━━━━━━━
+🙏 Thank you for trusting Purple Cow!
+📞 Call us anytime for next pickup!`;
+        }
+        
+        const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+        window.open(whatsappUrl, '_blank');
+      },
+
+      async updateWashStatus(customerId, washNumber, status, dateType = null) {
+        const customerIndex = this.customers.findIndex(c => c.id === customerId);
+        if (customerIndex === -1) return;
+
+        const customer = this.customers[customerIndex];
+        const washIndex = customer.washes.findIndex(w => w.washNumber === washNumber);
+        if (washIndex === -1) return;
+
+        const wash = { ...customer.washes[washIndex], status };
+
+        if (dateType === 'pickup' && status === 'picked-up') {
+          wash.pickupDate = new Date().toISOString().split('T')[0];
+          wash.pickupCode = this.generateCode();
+          const completedCount = customer.washes.filter(w => w.status === 'delivered').length;
+          setTimeout(() => {
+            this.sendWhatsAppNotification(customer.phone, customer.name, washNumber, 'pickup', wash.pickupCode, completedCount);
+          }, 100);
+        } else if (dateType === 'delivery' && status === 'delivered') {
+          wash.deliveryDate = new Date().toISOString().split('T')[0];
+          wash.deliveryCode = this.generateCode();
+          const completedCount = customer.washes.filter(w => w.status === 'delivered').length + 1;
+          setTimeout(() => {
+            this.sendWhatsAppNotification(customer.phone, customer.name, washNumber, 'delivery', wash.deliveryCode, completedCount);
+          }, 100);
+        }
+
+        customer.washes[washIndex] = wash;
+        this.customers[customerIndex] = customer;
+
+        try {
+          await db.collection('customers').doc(customerId).update({
+            washes: customer.washes
+          });
+          this.render();
+        } catch (error) {
+          console.error('Error updating wash status:', error);
+          alert('Failed to update status. Please try again.');
+        }
+      },
+
+      getStatusColor(status) {
+        switch (status) {
+          case 'pending': return 'bg-gray-200 text-gray-700';
+          case 'picked-up': return 'bg-blue-500 text-white';
+          case 'delivered': return 'bg-green-500 text-white';
+          default: return 'bg-gray-200 text-gray-700';
+        }
+      },
+
+      getCompletedWashes(customer) {
+        return customer.washes.filter(w => w.status === 'delivered').length;
+      },
+
+      getFilteredCustomers() {
+        return this.customers.filter(customer =>
+          customer.name.toLowerCase().includes(this.searchTerm.toLowerCase()) ||
+          customer.phone.includes(this.searchTerm)
+        );
+      },
+
+      copyCode(code) {
+        navigator.clipboard.writeText(code).then(() => {
+          this.copiedCode = code;
+          this.render();
+          setTimeout(() => {
+            this.copiedCode = null;
+            this.render();
+          }, 2000);
+        }).catch(err => console.error('Failed to copy:', err));
+      },
+
+      render() {
+        const root = document.getElementById('root');
+        const filteredCustomers = this.getFilteredCustomers();
+
+        root.innerHTML = `
+          <div class="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-4">
+            ${this.copiedCode ? `
+              <div class="fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 z-50 animate-bounce">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                </svg>
+                <span class="font-semibold">Order ID #${this.copiedCode} Copied!</span>
+              </div>
+            ` : ''}
+            
+            ${this.loading ? `
+              <div class="min-h-screen flex items-center justify-center">
+                <div class="text-center">
+                  <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-500 mx-auto mb-4"></div>
+                  <p class="text-gray-300 text-lg">Loading your data...</p>
+                </div>
+              </div>
+            ` : `
+              <div class="max-w-7xl mx-auto">
+                <!-- Header -->
+                <div class="bg-gray-800 rounded-lg shadow-2xl p-6 mb-6 border border-purple-500/30">
+                  <div class="flex items-center justify-between mb-4">
+                    <div>
+                      <h1 class="text-3xl font-bold text-purple-400 flex items-center gap-2">
+                        🐄💜 Purple Cow Laundry Tracker
+                      </h1>
+                      <p class="text-gray-300 mt-1">Track pickup, delivery & 10-wash completion</p>
+                    </div>
+                    <button
+                      onclick="App.showAddCustomer = !App.showAddCustomer; App.render();"
+                      class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg flex items-center gap-2 transition shadow-lg"
+                    >
+                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                      </svg>
+                      Add Customer
+                    </button>
+                  </div>
+
+                  <div class="relative">
+                    <svg class="absolute left-3 top-3 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                    <input
+                      type="text"
+                      placeholder="Search by name or phone..."
+                      value="${this.searchTerm}"
+                      oninput="App.searchTerm = this.value; App.render();"
+                      class="w-full pl-10 pr-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-gray-400"
+                    />
+                  </div>
+                </div>
+
+                <!-- Add Customer Form -->
+                ${this.showAddCustomer ? `
+                  <div class="bg-gray-800 rounded-lg shadow-2xl p-6 mb-6 border border-purple-500/30">
+                    <h2 class="text-xl font-bold text-purple-400 mb-4">Add New Customer</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Customer Name *</label>
+                        <input
+                          type="text"
+                          value="${this.newCustomer.name}"
+                          oninput="App.newCustomer.name = this.value"
+                          class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white placeholder-gray-400"
+                          placeholder="Enter name"
+                        />
+                      </div>
+                      <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Phone Number *</label>
+                        <input
+                          type="tel"
+                          value="${this.newCustomer.phone}"
+                          oninput="App.newCustomer.phone = this.value"
+                          class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white placeholder-gray-400"
+                          placeholder="Enter phone"
+                        />
+                      </div>
+                      <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Address</label>
+                        <input
+                          type="text"
+                          value="${this.newCustomer.address}"
+                          oninput="App.newCustomer.address = this.value"
+                          class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white placeholder-gray-400"
+                          placeholder="Enter full address for Google Maps"
+                        />
+                        <p class="text-xs text-gray-400 mt-1">💡 Tip: Include area, landmark, and pincode for accurate navigation</p>
+                      </div>
+                      <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Start Date</label>
+                        <input
+                          type="date"
+                          value="${this.newCustomer.startDate}"
+                          onchange="App.newCustomer.startDate = this.value"
+                          class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white"
+                        />
+                      </div>
+                      <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Plan</label>
+                        <input
+                          type="text"
+                          value="₹${this.newCustomer.plan}/-"
+                          disabled
+                          class="w-full px-4 py-2 border border-gray-600 rounded-lg bg-gray-900 text-gray-300"
+                        />
+                      </div>
+                    </div>
+                    <div class="flex gap-3 mt-4">
+                      <button
+                        onclick="App.addCustomer()"
+                        class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition shadow-lg"
+                      >
+                        Save Customer
+                      </button>
+                      <button
+                        onclick="App.showAddCustomer = false; App.render();"
+                        class="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg transition"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ` : ''}
+
+                <!-- Customer List -->
+                ${filteredCustomers.length === 0 ? `
+                  <div class="bg-gray-800 rounded-lg shadow-2xl p-12 text-center border border-purple-500/30">
+                    <svg class="w-16 h-16 mx-auto text-gray-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                    </svg>
+                    <h3 class="text-xl font-semibold text-gray-300 mb-2">No Customers Yet</h3>
+                    <p class="text-gray-400">Click "Add Customer" to get started!</p>
+                  </div>
+                ` : `
+                  <div class="space-y-6">
+                    ${filteredCustomers.map(customer => {
+                      const completedWashes = this.getCompletedWashes(customer);
+                      const progressPercent = (completedWashes / 10) * 100;
+
+                      return `
+                        <div class="bg-gray-800 rounded-lg shadow-2xl p-6 border border-purple-500/30">
+                          <div class="flex items-start justify-between mb-4 pb-4 border-b border-gray-700">
+                            <div>
+                              <h3 class="text-xl font-bold text-purple-400">${customer.name}</h3>
+                              <p class="text-gray-300 flex items-center gap-2 mt-1">
+                                📞 ${customer.phone}
+                              </p>
+                              ${customer.address ? `
+                                <div class="flex items-center gap-2 mt-1">
+                                  <span class="text-gray-400">📍</span>
+                                  <span class="text-gray-300">${customer.address}</span>
+                                  <a
+                                    href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(customer.address)}"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs flex items-center gap-1 transition shadow-lg"
+                                  >
+                                    🗺️ Navigate
+                                  </a>
+                                </div>
+                              ` : ''}
+                              <p class="text-gray-300 flex items-center gap-2 mt-1">
+                                📅 Started: ${customer.startDate}
+                              </p>
+                            </div>
+                            <div class="text-right">
+                              <div class="bg-purple-600 text-white px-4 py-2 rounded-lg font-bold shadow-lg">
+                                ₹${customer.plan}/-
+                              </div>
+                              <div class="mt-2 text-sm text-gray-300">
+                                ${completedWashes}/10 Washes
+                              </div>
+                            </div>
+                          </div>
+
+                          <div class="mb-4">
+                            <div class="flex justify-between text-sm text-gray-300 mb-2">
+                              <span>Completion Progress</span>
+                              <span class="font-semibold">${progressPercent.toFixed(0)}%</span>
+                            </div>
+                            <div class="w-full bg-gray-700 rounded-full h-3">
+                              <div
+                                class="bg-gradient-to-r from-purple-500 to-blue-500 h-3 rounded-full transition-all duration-500 shadow-lg"
+                                style="width: ${progressPercent}%"
+                              ></div>
+                            </div>
+                          </div>
+
+                          <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                            ${customer.washes.map(wash => `
+                              <div class="border border-gray-600 rounded-lg p-3 bg-gray-700/50">
+                                <div class="text-center mb-2">
+                                  <span class="font-bold text-purple-300">Wash #${wash.washNumber}</span>
+                                </div>
+                                
+                                <div class="${this.getStatusColor(wash.status)} px-2 py-1 rounded text-xs text-center mb-2 font-semibold">
+                                  ${wash.status.toUpperCase()}
+                                </div>
+
+                                ${wash.status === 'pending' ? `
+                                  <button
+                                    onclick="App.updateWashStatus('${customer.id}', ${wash.washNumber}, 'picked-up', 'pickup')"
+                                    class="w-full bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs flex items-center justify-center gap-1 transition shadow-lg"
+                                  >
+                                    🚚 Pickup
+                                  </button>
+                                ` : ''}
+
+                                ${wash.status === 'picked-up' ? `
+                                  <div 
+                                    onclick="App.copyCode('${wash.pickupCode}')"
+                                    class="text-xs bg-blue-600 text-white px-2 py-1 rounded font-bold mb-1 cursor-pointer hover:bg-blue-700 transition flex items-center justify-center gap-1"
+                                    title="Click to copy"
+                                  >
+                                    📦 #${wash.pickupCode}
+                                  </div>
+                                  ${wash.pickupDate ? `<div class="text-xs text-gray-300 mb-1">📅 ${wash.pickupDate}</div>` : ''}
+                                  <button
+                                    onclick="App.updateWashStatus('${customer.id}', ${wash.washNumber}, 'delivered', 'delivery')"
+                                    class="w-full bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs flex items-center justify-center gap-1 transition shadow-lg"
+                                  >
+                                    ✅ Deliver
+                                  </button>
+                                ` : ''}
+
+                                ${wash.status === 'delivered' ? `
+                                  <div class="text-xs text-gray-300 space-y-1">
+                                    <div 
+                                      onclick="App.copyCode('${wash.pickupCode}')"
+                                      class="bg-blue-600 text-white px-2 py-1 rounded font-bold cursor-pointer hover:bg-blue-700 transition flex items-center justify-center gap-1"
+                                      title="Click to copy"
+                                    >
+                                      📦 #${wash.pickupCode}
+                                    </div>
+                                    ${wash.pickupDate ? `<div>📅 ${wash.pickupDate}</div>` : ''}
+                                    <div 
+                                      onclick="App.copyCode('${wash.deliveryCode}')"
+                                      class="bg-green-600 text-white px-2 py-1 rounded font-bold mt-2 cursor-pointer hover:bg-green-700 transition flex items-center justify-center gap-1"
+                                      title="Click to copy"
+                                    >
+                                      ✅ #${wash.deliveryCode}
+                                    </div>
+                                    ${wash.deliveryDate ? `<div>📅 ${wash.deliveryDate}</div>` : ''}
+                                  </div>
+                                ` : ''}
+                              </div>
+                            `).join('')}
+                          </div>
+
+                          ${completedWashes === 10 ? `
+                            <div class="mt-4 bg-gradient-to-r from-green-600 to-blue-600 text-white px-4 py-3 rounded-lg text-center font-bold shadow-lg">
+                              🎉 All 10 Washes Completed! 🎉
+                            </div>
+                          ` : ''}
+                        </div>
+                      `;
+                    }).join('')}
+                  </div>
+                `}
+              </div>
+            `}
+          </div>
+        `;
+      }
+    };
+
+    // Initialize app when DOM is ready
+    document.addEventListener('DOMContentLoaded', () => {
+      App.init();
+    });
+  </script>
+</body>
+</html>
