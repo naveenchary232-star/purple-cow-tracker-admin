@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Purple Cow Laundry Tracker</title>
+  <title>Purple Cow Laundry Tracker - Complete</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
@@ -16,18 +16,9 @@
       animation: bounce 1s infinite;
     }
     @media print {
-      body * {
-        visibility: hidden;
-      }
-      #printable-runsheet, #printable-runsheet * {
-        visibility: visible;
-      }
-      #printable-runsheet {
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 100%;
-      }
+      body * { visibility: hidden; }
+      .printable-runsheet, .printable-runsheet * { visibility: visible; }
+      .printable-runsheet { position: absolute; left: 0; top: 0; width: 100%; }
     }
   </style>
 </head>
@@ -63,20 +54,20 @@
     }
 
     // ============================================
-    // LAUNDRY TRACKER APPLICATION
+    // COMPLETE LAUNDRY TRACKER APPLICATION
     // ============================================
     const App = {
       customers: [],
       riders: [],
+      runsheets: [],
       showAddCustomer: false,
       showAddRider: false,
       showCreateRunsheet: false,
-      runsheetMode: false,
-      selectedOrders: [],
       searchTerm: '',
       loading: true,
       copiedCode: null,
       saving: false,
+      printRunsheetId: null,
       newCustomer: {
         name: '',
         phone: '',
@@ -89,27 +80,27 @@
         phone: '',
         vehicle: ''
       },
-      runsheetData: {
+      runsheet: {
         riderId: '',
         type: 'pickup',
-        date: new Date().toISOString().split('T')[0]
+        date: new Date().toISOString().split('T')[0],
+        selectedOrders: []
       },
-      currentRunsheet: null,
 
       async init() {
-        console.log('🚀 Initializing app...');
+        console.log('🚀 Initializing complete app...');
         if (!firebaseInitialized) {
           this.loading = false;
           this.render();
           alert('Firebase initialization failed. Please check your internet connection and refresh.');
           return;
         }
-        await Promise.all([this.loadCustomers(), this.loadRiders()]);
+        await Promise.all([this.loadCustomers(), this.loadRiders(), this.loadRunsheets()]);
+        this.loading = false;
         this.render();
       },
 
       async loadCustomers() {
-        console.log('📦 Loading customers...');
         try {
           const snapshot = await db.collection('customers').orderBy('startDate', 'desc').get();
           this.customers = snapshot.docs.map(doc => ({
@@ -119,39 +110,33 @@
           console.log(`✅ Loaded ${this.customers.length} customers`);
         } catch (error) {
           console.error('❌ Error loading customers:', error);
-        } finally {
-          this.loading = false;
-          this.render();
         }
       },
 
       async loadRiders() {
-        console.log('🏍 Loading riders...');
         try {
-          const snapshot = await db.collection('riders').get();
-          this.riders = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          }));
+          const snapshot = await db.collection('riders').orderBy('name').get();
+          this.riders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           console.log(`✅ Loaded ${this.riders.length} riders`);
         } catch (error) {
           console.error('❌ Error loading riders:', error);
         }
       },
 
+      async loadRunsheets() {
+        try {
+          const snapshot = await db.collection('runsheets').orderBy('createdAt', 'desc').get();
+          this.runsheets = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        } catch (error) {
+          console.error('❌ Error loading runsheets:', error);
+        }
+      },
+
       async addCustomer() {
-        console.log('💾 Attempting to save customer...');
-        
         if (!this.newCustomer.name || !this.newCustomer.phone) {
           alert('Please enter name and phone number');
           return;
         }
-
-        if (!firebaseInitialized) {
-          alert('Firebase is not initialized. Please refresh the page.');
-          return;
-        }
-
         this.saving = true;
         this.render();
 
@@ -175,21 +160,12 @@
         try {
           const docRef = await db.collection('customers').add(customer);
           this.customers.unshift({ id: docRef.id, ...customer });
-          
-          this.newCustomer = {
-            name: '',
-            phone: '',
-            address: '',
-            plan: '2699',
-            startDate: new Date().toISOString().split('T')[0]
-          };
-          
+          this.newCustomer = { name: '', phone: '', address: '', plan: '2699', startDate: new Date().toISOString().split('T')[0] };
           this.showAddCustomer = false;
           this.saving = false;
           this.render();
           alert('✅ Customer added successfully!');
         } catch (error) {
-          console.error('❌ Error adding customer:', error);
           this.saving = false;
           this.render();
           alert('❌ Failed to add customer: ' + error.message);
@@ -197,223 +173,90 @@
       },
 
       async addRider() {
-        console.log('🏍 Attempting to save rider...');
-        
-        if (!this.newRider.name || !this.newRider.phone) {
-          alert('Please enter rider name and phone number');
+        if (!this.newRider.name || !this.newRider.phone || !this.newRider.vehicle) {
+          alert('Please fill all rider details');
           return;
         }
-
-        this.saving = true;
-        this.render();
-
-        const rider = {
-          name: this.newRider.name.trim(),
-          phone: this.newRider.phone.trim(),
-          vehicle: this.newRider.vehicle.trim(),
-          createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        };
-
         try {
-          const docRef = await db.collection('riders').add(rider);
-          this.riders.push({ id: docRef.id, ...rider });
-          
+          const docRef = await db.collection('riders').add(this.newRider);
+          this.riders.push({ id: docRef.id, ...this.newRider });
           this.newRider = { name: '', phone: '', vehicle: '' };
           this.showAddRider = false;
-          this.saving = false;
           this.render();
           alert('✅ Rider added successfully!');
         } catch (error) {
-          console.error('❌ Error adding rider:', error);
-          this.saving = false;
-          this.render();
           alert('❌ Failed to add rider: ' + error.message);
         }
       },
 
-      toggleOrderSelection(customerId, washNumber) {
-        const orderKey = `${customerId}-${washNumber}`;
-        const index = this.selectedOrders.findIndex(o => o.key === orderKey);
-        
-        if (index > -1) {
-          this.selectedOrders.splice(index, 1);
-        } else {
-          const customer = this.customers.find(c => c.id === customerId);
-          const wash = customer.washes.find(w => w.washNumber === washNumber);
-          this.selectedOrders.push({
-            key: orderKey,
-            customerId,
-            washNumber,
-            customerName: customer.name,
-            customerPhone: customer.phone,
-            customerAddress: customer.address,
-            status: wash.status,
-            pickupCode: wash.pickupCode
-          });
-        }
+      toggleRunsheetMode() {
+        this.showCreateRunsheet = !this.showCreateRunsheet;
+        this.runsheet.selectedOrders = [];
         this.render();
       },
 
-      isOrderSelected(customerId, washNumber) {
-        return this.selectedOrders.some(o => o.key === `${customerId}-${washNumber}`);
+      selectOrder(customerId, washNumber) {
+        if (!this.showCreateRunsheet) return;
+        const exists = this.runsheet.selectedOrders.find(
+          o => o.customerId === customerId && o.washNumber === washNumber
+        );
+        if (exists) {
+          this.runsheet.selectedOrders = this.runsheet.selectedOrders.filter(
+            o => !(o.customerId === customerId && o.washNumber === washNumber)
+          );
+        } else {
+          this.runsheet.selectedOrders.push({ customerId, washNumber });
+        }
+        this.render();
       },
 
       async createRunsheet() {
-        if (!this.runsheetData.riderId) {
-          alert('Please select a rider');
+        if (!this.runsheet.riderId || this.runsheet.selectedOrders.length === 0) {
+          alert('Please select rider and at least one order');
           return;
         }
 
-        if (this.selectedOrders.length === 0) {
-          alert('Please select at least one order');
-          return;
-        }
-
-        this.saving = true;
-        this.render();
-
-        const rider = this.riders.find(r => r.id === this.runsheetData.riderId);
-        const runsheetId = `RS${Date.now()}`;
-
-        const runsheet = {
-          runsheetId,
-          riderId: this.runsheetData.riderId,
-          riderName: rider.name,
-          riderPhone: rider.phone,
-          riderVehicle: rider.vehicle,
-          type: this.runsheetData.type,
-          date: this.runsheetData.date,
-          orders: this.selectedOrders,
-          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-          status: 'active'
+        const rider = this.riders.find(r => r.id === this.runsheet.riderId);
+        const runsheetData = {
+          rider,
+          type: this.runsheet.type,
+          date: this.runsheet.date,
+          orders: this.runsheet.selectedOrders,
+          runsheetId: 'RS' + Date.now().toString().slice(-6),
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
         };
 
         try {
-          await db.collection('runsheets').add(runsheet);
-
-          // Update all selected orders to OFD status
-          const updatePromises = this.selectedOrders.map(async (order) => {
-            const customer = this.customers.find(c => c.id === order.customerId);
-            const washIndex = customer.washes.findIndex(w => w.washNumber === order.washNumber);
-            customer.washes[washIndex].status = 'ofd';
-            
-            return db.collection('customers').doc(order.customerId).update({
-              washes: customer.washes
-            });
-          });
-
-          await Promise.all(updatePromises);
-
-          this.currentRunsheet = runsheet;
-          this.saving = false;
+          const docRef = await db.collection('runsheets').add(runsheetData);
+          await this.updateOrdersToOFD(this.runsheet.selectedOrders);
+          this.showCreateRunsheet = false;
+          this.printRunsheetId = docRef.id;
+          this.runsheet = { riderId: '', type: 'pickup', date: new Date().toISOString().split('T')[0], selectedOrders: [] };
           this.render();
-          
-          setTimeout(() => {
-            window.print();
-          }, 500);
-
+          setTimeout(() => window.print(), 500);
+          alert(`✅ Runsheet created! ID: ${runsheetData.runsheetId}`);
         } catch (error) {
-          console.error('❌ Error creating runsheet:', error);
-          this.saving = false;
-          this.render();
           alert('❌ Failed to create runsheet: ' + error.message);
         }
       },
 
-      closeRunsheet() {
-        this.currentRunsheet = null;
-        this.selectedOrders = [];
-        this.runsheetMode = false;
-        this.showCreateRunsheet = false;
-        this.runsheetData = {
-          riderId: '',
-          type: 'pickup',
-          date: new Date().toISOString().split('T')[0]
-        };
-        this.render();
-      },
-
-      generateCode() {
-        return Math.floor(1000 + Math.random() * 9000).toString();
-      },
-
-      sendWhatsAppNotification(phone, customerName, washNumber, type, code, completedWashes) {
-        navigator.clipboard.writeText(code).then(() => {
-          this.copiedCode = code;
-          this.render();
-          setTimeout(() => {
-            this.copiedCode = null;
-            this.render();
-          }, 2000);
-        }).catch(err => console.error('Failed to copy:', err));
-        
-        let cleanPhone = phone.replace(/[^0-9]/g, '');
-        if (!cleanPhone.startsWith('91') && cleanPhone.length === 10) {
-          cleanPhone = '91' + cleanPhone;
-        }
-        
-        const currentDate = new Date().toLocaleDateString('en-IN', { 
-          day: '2-digit', 
-          month: '2-digit', 
-          year: 'numeric' 
-        });
-        
-        let message = '';
-        if (type === 'pickup') {
-          message = `✨ *PURPLE COW LAUNDRY* 🐄
-━━━━━━━━━━━━━━━━━━━━
-
-👋 Hello *${customerName}*!
-
-📦 *PICKUP CONFIRMED!* ✅
-
-🔢 *Order ID:* #${code}
-🧺 *Wash Number:* ${washNumber}/10
-📊 *Progress:* ${completedWashes}/10 Completed
-📅 *Date:* ${currentDate}
-
-━━━━━━━━━━━━━━━━━━━━
-
-✨ Your clothes are now in our care!
-🧼 Premium wash & dry service
-⏰ We'll notify you for delivery
-
-💡 *Track your order with ID:* #${code}
-
-━━━━━━━━━━━━━━━━━━━━
-🙏 Thank you for choosing Purple Cow!
-🚀 India's Most Trusted Laundry Service`;
-        } else if (type === 'delivery') {
-          const remainingWashes = 10 - completedWashes;
-          const completionBonus = completedWashes === 10 
-            ? `🎊 *CONGRATULATIONS!* All 10 washes completed! 🎊\n\n` 
-            : `💡 *Remaining washes:* ${remainingWashes} more to go!\n\n`;
+      async updateOrdersToOFD(orders) {
+        for (const { customerId, washNumber } of orders) {
+          const customer = this.customers.find(c => c.id === customerId);
+          if (!customer) continue;
           
-          message = `✨ *PURPLE COW LAUNDRY* 🐄
-━━━━━━━━━━━━━━━━━━━━
-
-👋 Hello *${customerName}*!
-
-🎉 *DELIVERY COMPLETED!* ✅
-
-🔢 *Order ID:* #${code}
-🧺 *Wash Number:* ${washNumber}/10
-📊 *Progress:* ${completedWashes}/10 Completed
-📅 *Delivered:* ${currentDate}
-
-━━━━━━━━━━━━━━━━━━━━
-
-✨ Your fresh, clean laundry is delivered!
-👕 Washed, dried & neatly folded
-😊 Hope you love our service
-
-${completionBonus}━━━━━━━━━━━━━━━━━━━━
-🙏 Thank you for trusting Purple Cow!
-📞 Call us anytime for next pickup!`;
+          const washIndex = customer.washes.findIndex(w => w.washNumber === washNumber);
+          if (washIndex === -1) continue;
+          
+          customer.washes[washIndex].status = 'ofd';
+          await db.collection('customers').doc(customerId).update({ washes: customer.washes });
+          
+          const customerIndex = this.customers.findIndex(c => c.id === customerId);
+          if (customerIndex !== -1) {
+            this.customers[customerIndex] = customer;
+          }
         }
-        
-        const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
-        window.open(whatsappUrl, '_blank');
+        this.render();
       },
 
       async updateWashStatus(customerId, washNumber, status, dateType = null) {
@@ -446,14 +289,91 @@ ${completionBonus}━━━━━━━━━━━━━━━━━━━━
         this.customers[customerIndex] = customer;
 
         try {
-          await db.collection('customers').doc(customerId).update({
-            washes: customer.washes
-          });
+          await db.collection('customers').doc(customerId).update({ washes: customer.washes });
           this.render();
         } catch (error) {
           console.error('❌ Error updating wash status:', error);
-          alert('Failed to update status. Please try again.');
         }
+      },
+
+      generateCode() {
+        return Math.floor(1000 + Math.random() * 9000).toString();
+      },
+
+      sendWhatsAppNotification(phone, customerName, washNumber, type, code, completedWashes) {
+        navigator.clipboard.writeText(code).then(() => {
+          this.copiedCode = code;
+          this.render();
+          setTimeout(() => {
+            this.copiedCode = null;
+            this.render();
+          }, 2000);
+        });
+
+        let cleanPhone = phone.replace(/[^0-9]/g, '');
+        if (!cleanPhone.startsWith('91') && cleanPhone.length === 10) {
+          cleanPhone = '91' + cleanPhone;
+        }
+
+        const currentDate = new Date().toLocaleDateString('en-IN', { 
+          day: '2-digit', month: '2-digit', year: 'numeric' 
+        });
+
+        let message = '';
+        if (type === 'pickup') {
+          message = `✨ *PURPLE COW LAUNDRY* 🐄
+━━━━━━━━━━━━━━━━━━━━
+
+👋 Hello *${customerName}*!
+
+📦 *PICKUP CONFIRMED!* ✅
+
+🔢 *Order ID:* #${code}
+🧺 *Wash Number:* ${washNumber}/10
+📊 *Progress:* ${completedWashes}/10 Completed
+📅 *Date:* ${currentDate}
+
+━━━━━━━━━━━━━━━━━━━━
+
+✨ Your clothes are now in our care!
+🧼 Premium wash & dry service
+⏰ We'll notify you for delivery
+
+💡 *Track your order with ID:* #${code}
+
+━━━━━━━━━━━━━━━━━━━━
+🙏 Thank you for choosing Purple Cow!`;
+        } else if (type === 'delivery') {
+          const remainingWashes = 10 - completedWashes;
+          const completionBonus = completedWashes === 10 
+            ? `🎊 *CONGRATULATIONS!* All 10 washes completed! 🎊\n\n` 
+            : `💡 *Remaining washes:* ${remainingWashes} more to go!\n\n`;
+
+          message = `✨ *PURPLE COW LAUNDRY* 🐄
+━━━━━━━━━━━━━━━━━━━━
+
+👋 Hello *${customerName}*!
+
+🎉 *DELIVERY COMPLETED!* ✅
+
+🔢 *Order ID:* #${code}
+🧺 *Wash Number:* ${washNumber}/10
+📊 *Progress:* ${completedWashes}/10 Completed
+📅 *Delivered:* ${currentDate}
+
+━━━━━━━━━━━━━━━━━━━━
+
+✨ Your fresh, clean laundry is delivered!
+👕 Washed, dried & neatly folded
+😊 Hope you love our service
+
+${completionBonus}━━━━━━━━━━━━━━━━━━━━
+🙏 Thank you for trusting Purple Cow!
+📞 Call us anytime for next pickup!`;
+        }
+
+        const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+        window.open(whatsappUrl, '_blank');
       },
 
       getStatusColor(status) {
@@ -485,103 +405,13 @@ ${completionBonus}━━━━━━━━━━━━━━━━━━━━
             this.copiedCode = null;
             this.render();
           }, 2000);
-        }).catch(err => console.error('Failed to copy:', err));
+        });
       },
 
       render() {
         const root = document.getElementById('root');
         const filteredCustomers = this.getFilteredCustomers();
 
-        // Runsheet Print View
-        if (this.currentRunsheet) {
-          root.innerHTML = `
-            <div class="min-h-screen bg-gray-900 p-8">
-              <div id="printable-runsheet" class="max-w-4xl mx-auto bg-white p-8 rounded-lg">
-                <div class="text-center border-b-4 border-purple-600 pb-4 mb-6">
-                  <h1 class="text-3xl font-bold text-purple-600">🐄 PURPLE COW LAUNDRY</h1>
-                  <p class="text-gray-600 mt-1">Delivery Runsheet</p>
-                </div>
-
-                <div class="grid grid-cols-2 gap-6 mb-6">
-                  <div>
-                    <h3 class="font-bold text-gray-700 mb-2">Runsheet Details</h3>
-                    <p><strong>Runsheet ID:</strong> ${this.currentRunsheet.runsheetId}</p>
-                    <p><strong>Type:</strong> ${this.currentRunsheet.type.toUpperCase()}</p>
-                    <p><strong>Date:</strong> ${this.currentRunsheet.date}</p>
-                    <p><strong>Total Orders:</strong> ${this.currentRunsheet.orders.length}</p>
-                  </div>
-                  <div>
-                    <h3 class="font-bold text-gray-700 mb-2">Rider Details</h3>
-                    <p><strong>Name:</strong> ${this.currentRunsheet.riderName}</p>
-                    <p><strong>Phone:</strong> ${this.currentRunsheet.riderPhone}</p>
-                    <p><strong>Vehicle:</strong> ${this.currentRunsheet.riderVehicle || 'N/A'}</p>
-                  </div>
-                </div>
-
-                <table class="w-full border-collapse border border-gray-300 mb-6">
-                  <thead>
-                    <tr class="bg-purple-100">
-                      <th class="border border-gray-300 px-3 py-2 text-left">#</th>
-                      <th class="border border-gray-300 px-3 py-2 text-left">Customer Name</th>
-                      <th class="border border-gray-300 px-3 py-2 text-left">Phone</th>
-                      <th class="border border-gray-300 px-3 py-2 text-left">Address</th>
-                      <th class="border border-gray-300 px-3 py-2 text-left">Wash #</th>
-                      <th class="border border-gray-300 px-3 py-2 text-left">Order ID</th>
-                      <th class="border border-gray-300 px-3 py-2 text-left">Signature</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${this.currentRunsheet.orders.map((order, index) => `
-                      <tr>
-                        <td class="border border-gray-300 px-3 py-2">${index + 1}</td>
-                        <td class="border border-gray-300 px-3 py-2">${order.customerName}</td>
-                        <td class="border border-gray-300 px-3 py-2">${order.customerPhone}</td>
-                        <td class="border border-gray-300 px-3 py-2">${order.customerAddress || 'N/A'}</td>
-                        <td class="border border-gray-300 px-3 py-2">${order.washNumber}</td>
-                        <td class="border border-gray-300 px-3 py-2 font-bold">#${order.pickupCode || 'N/A'}</td>
-                        <td class="border border-gray-300 px-3 py-2"></td>
-                      </tr>
-                    `).join('')}
-                  </tbody>
-                </table>
-
-                <div class="grid grid-cols-2 gap-6 mt-8 pt-6 border-t border-gray-300">
-                  <div>
-                    <p class="font-bold mb-2">Rider Signature:</p>
-                    <div class="border-b-2 border-gray-400 h-16"></div>
-                  </div>
-                  <div>
-                    <p class="font-bold mb-2">Manager Signature:</p>
-                    <div class="border-b-2 border-gray-400 h-16"></div>
-                  </div>
-                </div>
-
-                <div class="mt-6 text-center text-sm text-gray-600">
-                  <p>Generated on: ${new Date().toLocaleString('en-IN')}</p>
-                  <p class="mt-2">Purple Cow Laundry - India's Most Trusted Laundry Service</p>
-                </div>
-              </div>
-
-              <div class="max-w-4xl mx-auto mt-6 flex gap-4 justify-center print:hidden">
-                <button
-                  onclick="window.print()"
-                  class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg"
-                >
-                  🖨️ Print Runsheet
-                </button>
-                <button
-                  onclick="App.closeRunsheet()"
-                  class="bg-gray-600 hover:bg-gray-700 text-white px-6 py-3 rounded-lg font-semibold"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          `;
-          return;
-        }
-
-        // Main Application View
         root.innerHTML = `
           <div class="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-4">
             ${this.copiedCode ? `
@@ -592,7 +422,7 @@ ${completionBonus}━━━━━━━━━━━━━━━━━━━━
                 <span class="font-semibold">Order ID #${this.copiedCode} Copied!</span>
               </div>
             ` : ''}
-            
+
             ${this.loading ? `
               <div class="min-h-screen flex items-center justify-center">
                 <div class="text-center">
@@ -604,31 +434,25 @@ ${completionBonus}━━━━━━━━━━━━━━━━━━━━
               <div class="max-w-7xl mx-auto">
                 <!-- Header -->
                 <div class="bg-gray-800 rounded-lg shadow-2xl p-6 mb-6 border border-purple-500/30">
-                  <div class="flex items-center justify-between mb-4">
+                  <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
                     <div>
                       <h1 class="text-3xl font-bold text-purple-400 flex items-center gap-2">
                         🐄 Purple Cow Laundry Tracker
                       </h1>
-                      <p class="text-gray-300 mt-1">Track pickup, delivery & 10-wash completion</p>
+                      <p class="text-gray-300 mt-1">Complete workflow: Riders → Runsheets → OFD → Delivery</p>
                     </div>
-                    <div class="flex gap-3">
-                      <button
-                        onclick="App.showAddRider = !App.showAddRider; App.showAddCustomer = false; App.showCreateRunsheet = false; App.render();"
-                        class="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-3 rounded-lg flex items-center gap-2 transition shadow-lg"
-                      >
-                        🏍️ Add Rider
+                    <div class="flex flex-wrap gap-3">
+                      <button onclick="App.showAddRider = !App.showAddRider; App.render();" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition shadow-lg">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                        </svg>
+                        Add Rider
                       </button>
-                      <button
-                        onclick="App.runsheetMode = !App.runsheetMode; App.showCreateRunsheet = App.runsheetMode; App.showAddCustomer = false; App.showAddRider = false; if (!App.runsheetMode) { App.selectedOrders = []; } App.render();"
-                        class="${this.runsheetMode ? 'bg-orange-600 hover:bg-orange-700' : 'bg-blue-600 hover:bg-blue-700'} text-white px-4 py-3 rounded-lg flex items-center gap-2 transition shadow-lg"
-                      >
-                        📋 ${this.runsheetMode ? 'Cancel Runsheet' : 'Create Runsheet'}
+                      <button onclick="App.toggleRunsheetMode()" class="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition shadow-lg ${this.showCreateRunsheet ? 'ring-2 ring-yellow-400' : ''}">
+                        📋 ${this.showCreateRunsheet ? 'Cancel' : 'Create Runsheet'}
                       </button>
-                      <button
-                        onclick="App.showAddCustomer = !App.showAddCustomer; App.showAddRider = false; App.showCreateRunsheet = false; App.render();"
-                        class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-3 rounded-lg flex items-center gap-2 transition shadow-lg"
-                      >
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <button onclick="App.showAddCustomer = !App.showAddCustomer; App.render();" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition shadow-lg">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
                         </svg>
                         Add Customer
@@ -636,48 +460,354 @@ ${completionBonus}━━━━━━━━━━━━━━━━━━━━
                     </div>
                   </div>
 
-                  ${this.runsheetMode && this.selectedOrders.length > 0 ? `
-                    <div class="bg-orange-600 text-white px-4 py-3 rounded-lg mb-4">
-                      <div class="flex items-center justify-between">
-                        <span class="font-semibold">📦 ${this.selectedOrders.length} orders selected</span>
-                        <button
-                          onclick="App.selectedOrders = []; App.render();"
-                          class="bg-white text-orange-600 px-3 py-1 rounded text-sm font-semibold hover:bg-gray-100 transition"
-                        >
-                          Clear All
-                        </button>
-                      </div>
-                    </div>
-                  ` : ''}
+                  <div class="flex items-center gap-4 text-sm text-gray-300">
+                    <span>🧑‍💼 Riders: ${this.riders.length}</span>
+                    <span>👥 Customers: ${this.customers.length}</span>
+                    <span>📋 Runsheets: ${this.runsheets.length}</span>
+                  </div>
 
-                  <div class="relative">
+                  <div class="relative mt-4">
                     <svg class="absolute left-3 top-3 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
                     </svg>
-                    <input
-                      type="text"
-                      placeholder="Search by name or phone..."
-                      value="${this.searchTerm}"
-                      oninput="App.searchTerm = this.value; App.render();"
-                      class="w-full pl-10 pr-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-gray-400"
-                    />
+                    <input type="text" placeholder="Search by name or phone..." value="${this.searchTerm}" 
+                      oninput="App.searchTerm = this.value; App.render();" 
+                      class="w-full pl-10 pr-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-gray-400">
                   </div>
                 </div>
 
                 <!-- Add Rider Form -->
                 ${this.showAddRider ? `
-                  <div class="bg-gray-800 rounded-lg shadow-2xl p-6 mb-6 border border-yellow-500/30">
-                    <h2 class="text-xl font-bold text-yellow-400 mb-4">🏍️ Add New Rider</h2>
+                  <div class="bg-gray-800 rounded-lg shadow-2xl p-6 mb-6 border border-indigo-500/30">
+                    <h2 class="text-xl font-bold text-indigo-400 mb-4">Add New Rider 🏍️</h2>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div>
                         <label class="block text-sm font-medium text-gray-300 mb-2">Rider Name *</label>
-                        <input
-                          type="text"
-                          value="${this.newRider.name}"
-                          oninput="App.newRider.name = this.value"
-                          class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 text-white placeholder-gray-400"
-                          placeholder="Enter name"
-                        />
+                        <input type="text" value="${this.newRider.name}" 
+                          oninput="App.newRider.name = this.value" 
+                          class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 text-white">
                       </div>
                       <div>
-                        <label class="block text-sm
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Phone *</label>
+                        <input type="tel" value="${this.newRider.phone}" 
+                          oninput="App.newRider.phone = this.value" 
+                          class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 text-white">
+                      </div>
+                      <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Vehicle No. *</label>
+                        <input type="text" value="${this.newRider.vehicle}" 
+                          oninput="App.newRider.vehicle = this.value" 
+                          class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 text-white">
+                      </div>
+                    </div>
+                    <div class="flex gap-3 mt-4">
+                      <button onclick="App.addRider()" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition shadow-lg">
+                        💾 Save Rider
+                      </button>
+                      <button onclick="App.showAddRider = false; App.render();" class="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg transition">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ` : ''}
+
+                <!-- Create Runsheet Form -->
+                ${this.showCreateRunsheet ? `
+                  <div class="bg-gray-800 rounded-lg shadow-2xl p-6 mb-6 border border-yellow-500/30">
+                    <h2 class="text-xl font-bold text-yellow-400 mb-4">Create New Runsheet 📋</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                      <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Rider *</label>
+                        <select value="${this.runsheet.riderId}" 
+                          onchange="App.runsheet.riderId = this.value; App.render()" 
+                          class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 text-white">
+                          <option value="">Select Rider</option>
+                          ${this.riders.map(rider => `<option value="${rider.id}">${rider.name} (${rider.vehicle})</option>`).join('')}
+                        </select>
+                      </div>
+                      <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Type *</label>
+                        <select value="${this.runsheet.type}" 
+                          onchange="App.runsheet.type = this.value; App.render()" 
+                          class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 text-white">
+                          <option value="pickup">Pickup</option>
+                          <option value="delivery">Delivery</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Date *</label>
+                        <input type="date" value="${this.runsheet.date}" 
+                          onchange="App.runsheet.date = this.value" 
+                          class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 text-white">
+                      </div>
+                      <div class="flex items-end">
+                        <div class="bg-yellow-600 text-white px-6 py-3 rounded-lg font-bold shadow-lg">
+                          ${this.runsheet.selectedOrders.length} Orders
+                        </div>
+                      </div>
+                    </div>
+                    <div class="flex gap-3">
+                      <button onclick="App.createRunsheet()" class="bg-yellow-600 hover:bg-yellow-700 text-white px-8 py-3 rounded-lg font-bold shadow-lg">
+                        🖨️ Create & Print Runsheet
+                      </button>
+                      <button onclick="App.toggleRunsheetMode()" class="bg-gray-600 hover:bg-gray-700 text-white px-6 py-3 rounded-lg">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ` : ''}
+
+                <!-- Add Customer Form -->
+                ${this.showAddCustomer ? `
+                  <div class="bg-gray-800 rounded-lg shadow-2xl p-6 mb-6 border border-purple-500/30">
+                    <h2 class="text-xl font-bold text-purple-400 mb-4">Add New Customer</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Customer Name *</label>
+                        <input type="text" value="${this.newCustomer.name}" oninput="App.newCustomer.name = this.value" 
+                          class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white">
+                      </div>
+                      <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Phone Number *</label>
+                        <input type="tel" value="${this.newCustomer.phone}" oninput="App.newCustomer.phone = this.value" 
+                          class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white">
+                      </div>
+                      <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Address</label>
+                        <input type="text" value="${this.newCustomer.address}" oninput="App.newCustomer.address = this.value" 
+                          class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white">
+                      </div>
+                      <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Start Date</label>
+                        <input type="date" value="${this.newCustomer.startDate}" onchange="App.newCustomer.startDate = this.value" 
+                          class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white">
+                      </div>
+                      <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Plan</label>
+                        <input type="text" value="₹${this.newCustomer.plan}/-" disabled 
+                          class="w-full px-4 py-2 border border-gray-600 rounded-lg bg-gray-900 text-gray-300">
+                      </div>
+                    </div>
+                    <div class="flex gap-3 mt-4">
+                      <button onclick="App.addCustomer()" ${this.saving ? 'disabled' : ''} 
+                        class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition shadow-lg ${this.saving ? 'opacity-50 cursor-not-allowed' : ''}">
+                        ${this.saving ? '⏳ Saving...' : '💾 Save Customer'}
+                      </button>
+                      <button onclick="App.showAddCustomer = false; App.render();" ${this.saving ? 'disabled' : ''} 
+                        class="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg transition">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ` : ''}
+
+                <!-- Customer List -->
+                ${filteredCustomers.length === 0 ? `
+                  <div class="bg-gray-800 rounded-lg shadow-2xl p-12 text-center border border-purple-500/30">
+                    <svg class="w-16 h-16 mx-auto text-gray-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                    </svg>
+                    <h3 class="text-xl font-semibold text-gray-300 mb-2">No Customers Yet</h3>
+                    <p class="text-gray-400">Click "Add Customer" to get started!</p>
+                  </div>
+                ` : `
+                  <div class="space-y-6">
+                    ${filteredCustomers.map(customer => {
+                      const completedWashes = this.getCompletedWashes(customer);
+                      const progressPercent = (completedWashes / 10) * 100;
+                      const selectableWashes = customer.washes.filter(w => ['pending', 'picked-up'].includes(w.status));
+
+                      return `
+                        <div class="bg-gray-800 rounded-lg shadow-2xl p-6 border border-purple-500/30">
+                          <div class="flex items-start justify-between mb-4 pb-4 border-b border-gray-700">
+                            <div>
+                              <h3 class="text-xl font-bold text-purple-400">${customer.name}</h3>
+                              <p class="text-gray-300 flex items-center gap-2 mt-1">📞 ${customer.phone}</p>
+                              ${customer.address ? `
+                                <div class="flex items-center gap-2 mt-1">
+                                  <span class="text-gray-400">📍</span>
+                                  <span class="text-gray-300">${customer.address}</span>
+                                  <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(customer.address)}" target="_blank" 
+                                    class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs flex items-center gap-1 transition shadow-lg">
+                                    🗺️ Navigate
+                                  </a>
+                                </div>
+                              ` : ''}
+                              <p class="text-gray-300 flex items-center gap-2 mt-1">📅 Started: ${customer.startDate}</p>
+                            </div>
+                            <div class="text-right">
+                              <div class="bg-purple-600 text-white px-4 py-2 rounded-lg font-bold shadow-lg">₹${customer.plan}/-</div>
+                              <div class="mt-2 text-sm text-gray-300">${completedWashes}/10 Washes</div>
+                            </div>
+                          </div>
+
+                          <div class="mb-4">
+                            <div class="flex justify-between text-sm text-gray-300 mb-2">
+                              <span>Completion Progress</span>
+                              <span class="font-semibold">${progressPercent.toFixed(0)}%</span>
+                            </div>
+                            <div class="w-full bg-gray-700 rounded-full h-3">
+                              <div class="bg-gradient-to-r from-purple-500 to-blue-500 h-3 rounded-full transition-all duration-500 shadow-lg" 
+                                style="width: ${progressPercent}%"></div>
+                            </div>
+                          </div>
+
+                          <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                            ${customer.washes.map(wash => {
+                              const isSelectable = this.showCreateRunsheet && ['pending', 'picked-up'].includes(wash.status);
+                              const isSelected = this.runsheet.selectedOrders.some(o => o.customerId === customer.id && o.washNumber === wash.washNumber);
+
+                              return `
+                                <div class="border border-gray-600 rounded-lg p-3 bg-gray-700/50 relative">
+                                  ${isSelectable ? `
+                                    <div class="absolute -top-2 -right-2">
+                                      <input type="checkbox" ${isSelected ? 'checked' : ''} 
+                                        onchange="App.selectOrder('${customer.id}', ${wash.washNumber})"
+                                        class="w-5 h-5 text-yellow-500 bg-gray-700 border-gray-600 rounded focus:ring-yellow-500">
+                                    </div>
+                                  ` : ''}
+                                  <div class="text-center mb-2">
+                                    <span class="font-bold text-purple-300">Wash #${wash.washNumber}</span>
+                                  </div>
+                                  
+                                  <div class="${this.getStatusColor(wash.status)} px-2 py-1 rounded text-xs text-center mb-2 font-semibold">
+                                    ${wash.status.toUpperCase()}
+                                  </div>
+
+                                  ${wash.status === 'pending' ? `
+                                    <button onclick="App.updateWashStatus('${customer.id}', ${wash.washNumber}, 'picked-up', 'pickup')"
+                                      class="w-full bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs flex items-center justify-center gap-1 transition shadow-lg">
+                                      🚚 Pickup
+                                    </button>
+                                  ` : ''}
+
+                                  ${wash.status === 'picked-up' || wash.status === 'ofd' ? `
+                                    <div onclick="App.copyCode('${wash.pickupCode}')"
+                                      class="text-xs bg-blue-600 text-white px-2 py-1 rounded font-bold mb-1 cursor-pointer hover:bg-blue-700 transition flex items-center justify-center gap-1"
+                                      title="Click to copy">
+                                      📦 #${wash.pickupCode}
+                                    </div>
+                                    ${wash.pickupDate ? `<div class="text-xs text-gray-300 mb-1">📅 ${wash.pickupDate}</div>` : ''}
+                                    <button onclick="App.updateWashStatus('${customer.id}', ${wash.washNumber}, 'delivered', 'delivery')"
+                                      class="w-full bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs flex items-center justify-center gap-1 transition shadow-lg">
+                                      ✅ Deliver
+                                    </button>
+                                  ` : ''}
+
+                                  ${wash.status === 'delivered' ? `
+                                    <div class="text-xs text-gray-300 space-y-1">
+                                      <div onclick="App.copyCode('${wash.pickupCode}')"
+                                        class="bg-blue-600 text-white px-2 py-1 rounded font-bold cursor-pointer hover:bg-blue-700 transition flex items-center justify-center gap-1"
+                                        title="Click to copy">
+                                        📦 #${wash.pickupCode}
+                                      </div>
+                                      ${wash.pickupDate ? `<div>📅 ${wash.pickupDate}</div>` : ''}
+                                      <div onclick="App.copyCode('${wash.deliveryCode}')"
+                                        class="bg-green-600 text-white px-2 py-1 rounded font-bold mt-2 cursor-pointer hover:bg-green-700 transition flex items-center justify-center gap-1"
+                                        title="Click to copy">
+                                        ✅ #${wash.deliveryCode}
+                                      </div>
+                                      ${wash.deliveryDate ? `<div>📅 ${wash.deliveryDate}</div>` : ''}
+                                    </div>
+                                  ` : ''}
+                                </div>
+                              `;
+                            }).join('')}
+                          </div>
+
+                          ${completedWashes === 10 ? `
+                            <div class="mt-4 bg-gradient-to-r from-green-600 to-blue-600 text-white px-4 py-3 rounded-lg text-center font-bold shadow-lg">
+                              🎉 All 10 Washes Completed! 🎉
+                            </div>
+                          ` : ''}
+                        </div>
+                      `;
+                    }).join('')}
+                  </div>
+                `}
+
+                <!-- Printable Runsheet -->
+                ${this.printRunsheetId ? `
+                  ${this.runsheets.map(runsheet => runsheet.id === this.printRunsheetId ? `
+                    <div class="printable-runsheet hidden print:block bg-white p-8 mb-8 border-2 border-black">
+                      <div class="text-center mb-8">
+                        <h1 class="text-4xl font-bold text-purple-800 mb-2">🐄 PURPLE COW LAUNDRY</h1>
+                        <p class="text-xl text-gray-700">Premium Laundry Service</p>
+                        <p class="text-lg mt-4">📋 RUNSHEET ID: ${runsheet.runsheetId || runsheet.id.slice(-6)}</p>
+                        <p class="text-lg">📅 Date: ${runsheet.date} | 🏍️ Type: ${runsheet.type.toUpperCase()}</p>
+                      </div>
+                      
+                      <div class="border-2 border-black p-6 mb-6">
+                        <h2 class="text-2xl font-bold mb-4">Rider Details</h2>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xl">
+                          <div><strong>Name:</strong> ${runsheet.rider.name}</div>
+                          <div><strong>Phone:</strong> ${runsheet.rider.phone}</div>
+                          <div><strong>Vehicle:</strong> ${runsheet.rider.vehicle}</div>
+                        </div>
+                      </div>
+
+                      <div class="border-2 border-black p-6 mb-6">
+                        <h2 class="text-2xl font-bold mb-4">Order List (${runsheet.orders.length} Orders)</h2>
+                        <div class="overflow-x-auto">
+                          <table class="w-full border-collapse border-2 border-black">
+                            <thead>
+                              <tr class="bg-gray-200">
+                                <th class="border-2 border-black p-3 text-left">S.No</th>
+                                <th class="border-2 border-black p-3 text-left">Customer</th>
+                                <th class="border-2 border-black p-3 text-left">Phone</th>
+                                <th class="border-2 border-black p-3 text-left">Wash #</th>
+                                <th class="border-2 border-black p-3 text-left">Order ID</th>
+                                <th class="border-2 border-black p-3 text-left">Address</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              ${runsheet.orders.map((order, index) => {
+                                const customer = this.customers.find(c => c.id === order.customerId);
+                                if (!customer) return '';
+                                const wash = customer.washes.find(w => w.washNumber === order.washNumber);
+                                return `
+                                  <tr class="border-2 border-black">
+                                    <td class="border-2 border-black p-3 font-bold">${index + 1}</td>
+                                    <td class="border-2 border-black p-3">${customer.name}</td>
+                                    <td class="border-2 border-black p-3">${customer.phone}</td>
+                                    <td class="border-2 border-black p-3 font-bold">Wash #${order.washNumber}</td>
+                                    <td class="border-2 border-black p-3 font-bold">#${wash?.pickupCode || 'N/A'}</td>
+                                    <td class="border-2 border-black p-3">${customer.address || 'N/A'}</td>
+                                  </tr>
+                                `;
+                              }).join('')}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      <div class="border-2 border-black p-6 mt-8">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                          <div>
+                            <p class="text-lg mb-4"><strong>Rider Signature:</strong></p>
+                            <div style="height: 80px; border-bottom: 2px solid black;"></div>
+                            <p class="mt-2 text-sm">Date & Time: _______________</p>
+                          </div>
+                          <div>
+                            <p class="text-lg mb-4"><strong>Customer Verification:</strong></p>
+                            <div style="height: 80px; border-bottom: 2px solid black;"></div>
+                            <p class="mt-2 text-sm">Total Orders: ${runsheet.orders.length}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ` : '').join('')}
+                ` : ''}
+              </div>
+            `}
+          </div>
+        `;
+      }
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+      App.init();
+    });
+  </script>
+</body>
+</html>
