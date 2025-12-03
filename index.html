@@ -1,494 +1,559 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Purple Cow Laundry Tracker - Complete</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-    <style>
-        @keyframes bounce {
-            0%, 100% { transform: translateY(-25%); }
-            50% { transform: translateY(0); }
-        }
-        .animate-bounce { animation: bounce 1s infinite; }
-        @media print {
-            body { visibility: hidden; }
-            .printable-runsheet, .printable-runsheet * { visibility: visible; }
-            .printable-runsheet { position: absolute; left: 0; top: 0; width: 100%; }
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Purple Cow Laundry Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <style>
+    @keyframes bounce {
+      0%, 100% { transform: translateY(-25%); }
+      50% { transform: translateY(0); }
+    }
+    .animate-bounce {
+      animation: bounce 1s infinite;
+    }
+    @media print {
+      body * { visibility: hidden; }
+      #printable-runsheet, #printable-runsheet * { visibility: visible; }
+      #printable-runsheet { position: absolute; left: 0; top: 0; width: 100%; }
+    }
+  </style>
 </head>
 <body class="bg-gray-900">
-    <div id="root"></div>
+  <div id="root"></div>
 
-    <script>
-        // FIREBASE CONFIGURATION
-        const firebaseConfig = {
-            apiKey: "AIzaSyCorv41Qlud5cK4dvABePg6boVAr8vEJU",
-            authDomain: "purple-cow-admin-2232f.firebaseapp.com",
-            databaseURL: "https://purple-cow-admin-2232f-default-rtdb.firebaseio.com",
-            projectId: "purple-cow-admin-2232f",
-            storageBucket: "purple-cow-admin-2232f.firebasestorage.app",
-            messagingSenderId: "295566586816",
-            appId: "1295566586816web358452d3998f2d78370e25",
-            measurementId: "G-TE32V3BTHE"
-        };
+  <script>
+    // Firebase Config
+    const firebaseConfig = {
+      apiKey: "AIzaSyCorv41Qlud5cK4_dvABePg6boVAr8vEJU",
+      authDomain: "purple-cow-admin-2232f.firebaseapp.com",
+      databaseURL: "https://purple-cow-admin-2232f-default-rtdb.firebaseio.com",
+      projectId: "purple-cow-admin-2232f",
+      storageBucket: "purple-cow-admin-2232f.firebasestorage.app",
+      messagingSenderId: "295566586816",
+      appId: "1:295566586816:web:358452d3998f2d78370e25",
+      measurementId: "G-TE32V3BTHE"
+    };
 
-        let db;
-        let firebaseInitialized = false;
+    // App State
+    const App = {
+      customers: [],
+      riders: [],
+      showAddCustomer: false,
+      showAddRider: false,
+      showCreateRunsheet: false,
+      runsheetMode: false,
+      selectedOrders: [],
+      searchTerm: '',
+      loading: true,
+      copiedCode: null,
+      saving: false,
+      newCustomer: { name: '', phone: '', address: '', plan: '2699', startDate: new Date().toISOString().split('T')[0] },
+      newRider: { name: '', phone: '', vehicle: '' },
+      runsheetData: { riderId: '', type: 'pickup', date: new Date().toISOString().split('T')[0] },
+      currentRunsheet: null,
+      db: null
+    };
 
-        try {
-            firebase.initializeApp(firebaseConfig);
-            db = firebase.firestore();
-            firebaseInitialized = true;
-            console.log("✅ Firebase initialized successfully");
-        } catch (error) {
-            console.error("❌ Firebase initialization error:", error);
-            firebaseInitialized = false;
-        }
+    // Initialize Firebase
+    async function initFirebase() {
+      try {
+        firebase.initializeApp(firebaseConfig);
+        App.db = firebase.firestore();
+        console.log('✅ Firebase initialized');
+        return true;
+      } catch (error) {
+        console.error('❌ Firebase init error:', error);
+        return false;
+      }
+    }
 
-        const App = {
-            customers: [],
-            riders: [],
-            runsheets: [],
-            showAddCustomer: false,
-            showAddRider: false,
-            showCreateRunsheet: false,
-            showRunsheetDashboard: true,
-            searchTerm: '',
-            loading: true,
-            copiedCode: null,
-            saving: false,
-            printRunsheetId: null,
-            newCustomer: { name: '', phone: '', address: '', plan: '2699', startDate: new Date().toISOString().split('T')[0] },
-            newRider: { name: '', phone: '', vehicle: '' },
-            runsheet: { riderId: '', type: 'pickup', date: new Date().toISOString().split('T')[0], selectedOrders: [] },
+    // App Methods
+    App.init = async function() {
+      console.log('🚀 Starting app...');
+      const firebaseOk = await initFirebase();
+      
+      if (!firebaseOk) {
+        App.loading = false;
+        App.render();
+        alert('Firebase failed. Check connection and refresh.');
+        return;
+      }
 
-            async init() {
-                console.log("🚀 Initializing app...");
-                this.render();
-                
-                if (!firebaseInitialized) {
-                    this.loading = false;
-                    this.render();
-                    return;
-                }
+      await Promise.all([this.loadCustomers(), this.loadRiders()]);
+      this.loading = false;
+      this.render();
+    };
 
-                try {
-                    await Promise.all([
-                        this.loadCustomers(), 
-                        this.loadRiders(), 
-                        this.loadRunsheets()
-                    ]);
-                    this.loading = false;
-                    console.log("✅ Data loaded successfully");
-                } catch (error) {
-                    console.error("❌ Error loading data:", error);
-                }
-                this.render();
-            },
+    App.loadCustomers = async function() {
+      try {
+        const snapshot = await App.db.collection('customers').orderBy('startDate', 'desc').get();
+        this.customers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        console.log(`✅ ${this.customers.length} customers loaded`);
+      } catch (error) {
+        console.error('❌ Customers load error:', error);
+      }
+    };
 
-            async loadCustomers() {
-                try {
-                    const snapshot = await db.collection('customers').orderBy('startDate', 'desc').get();
-                    this.customers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    console.log(`✅ Loaded ${this.customers.length} customers`);
-                } catch (error) {
-                    console.error("❌ Error loading customers:", error);
-                    this.customers = [];
-                }
-            },
+    App.loadRiders = async function() {
+      try {
+        const snapshot = await App.db.collection('riders').get();
+        this.riders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        console.log(`✅ ${this.riders.length} riders loaded`);
+      } catch (error) {
+        console.error('❌ Riders load error:', error);
+      }
+    };
 
-            async loadRiders() {
-                try {
-                    const snapshot = await db.collection('riders').orderBy('name').get();
-                    this.riders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    console.log(`✅ Loaded ${this.riders.length} riders`);
-                } catch (error) {
-                    console.error("❌ Error loading riders:", error);
-                    this.riders = [];
-                }
-            },
+    App.addCustomer = async function() {
+      if (!this.newCustomer.name || !this.newCustomer.phone) {
+        alert('Enter name and phone');
+        return;
+      }
 
-            async loadRunsheets() {
-                try {
-                    const snapshot = await db.collection('runsheets').orderBy('createdAt', 'desc').get();
-                    this.runsheets = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    console.log(`✅ Loaded ${this.runsheets.length} runsheets`);
-                } catch (error) {
-                    console.error("❌ Error loading runsheets:", error);
-                    this.runsheets = [];
-                }
-            },
+      this.saving = true;
+      this.render();
 
-            // ✅ FIXED: Add Customer Method
-            async addCustomer() {
-                console.log("🆕 Adding customer:", this.newCustomer);
-                
-                if (!this.newCustomer.name.trim() || !this.newCustomer.phone.trim()) {
-                    alert("❌ Please enter name and phone number");
-                    return;
-                }
+      const customer = {
+        name: this.newCustomer.name.trim(),
+        phone: this.newCustomer.phone.trim(),
+        address: this.newCustomer.address.trim(),
+        plan: this.newCustomer.plan,
+        startDate: this.newCustomer.startDate,
+        washes: Array(10).fill(null).map((_, i) => ({
+          washNumber: i + 1,
+          status: 'pending',
+          pickupDate: null,
+          deliveryDate: null,
+          pickupCode: null,
+          deliveryCode: null
+        })),
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      };
 
-                this.saving = true;
-                this.render();
+      try {
+        const docRef = await App.db.collection('customers').add(customer);
+        this.customers.unshift({ id: docRef.id, ...customer });
+        this.newCustomer = { name: '', phone: '', address: '', plan: '2699', startDate: new Date().toISOString().split('T')[0] };
+        this.showAddCustomer = false;
+        this.saving = false;
+        this.render();
+        alert('✅ Customer added!');
+      } catch (error) {
+        console.error('❌ Add customer error:', error);
+        this.saving = false;
+        this.render();
+        alert('❌ Failed: ' + error.message);
+      }
+    };
 
-                const customer = {
-                    name: this.newCustomer.name.trim(),
-                    phone: this.newCustomer.phone.trim(),
-                    address: this.newCustomer.address.trim() || '',
-                    plan: this.newCustomer.plan || '2699',
-                    startDate: this.newCustomer.startDate,
-                    washes: Array.from({ length: 10 }, (_, i) => ({
-                        washNumber: i + 1,
-                        status: 'pending',
-                        pickupDate: null,
-                        deliveryDate: null,
-                        pickupCode: null,
-                        deliveryCode: null,
-                        ofdComment: ''
-                    })),
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                };
+    App.addRider = async function() {
+      if (!this.newRider.name || !this.newRider.phone) {
+        alert('Enter rider name and phone');
+        return;
+      }
 
-                try {
-                    const docRef = await db.collection('customers').add(customer);
-                    const newCustomer = { id: docRef.id, ...customer };
-                    this.customers.unshift(newCustomer);
-                    console.log("✅ Customer added:", newCustomer.id);
-                    
-                    // Reset form
-                    this.newCustomer = { 
-                        name: '', 
-                        phone: '', 
-                        address: '', 
-                        plan: '2699', 
-                        startDate: new Date().toISOString().split('T')[0] 
-                    };
-                    this.showAddCustomer = false;
-                    this.saving = false;
-                    this.render();
-                    alert("✅ Customer added successfully!");
-                } catch (error) {
-                    console.error("❌ Failed to add customer:", error);
-                    this.saving = false;
-                    this.render();
-                    alert("❌ Failed to add customer: " + error.message);
-                }
-            },
+      this.saving = true;
+      this.render();
 
-            async addRider() {
-                if (!this.newRider.name || !this.newRider.phone || !this.newRider.vehicle) {
-                    alert("Please fill all rider details");
-                    return;
-                }
-                try {
-                    const docRef = await db.collection('riders').add(this.newRider);
-                    this.riders.push({ id: docRef.id, ...this.newRider });
-                    this.newRider = { name: '', phone: '', vehicle: '' };
-                    this.showAddRider = false;
-                    this.render();
-                    alert("Rider added successfully!");
-                } catch (error) {
-                    alert("Failed to add rider: " + error.message);
-                }
-            },
+      const rider = {
+        name: this.newRider.name.trim(),
+        phone: this.newRider.phone.trim(),
+        vehicle: this.newRider.vehicle.trim(),
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      };
 
-            toggleRunsheetMode() {
-                this.showCreateRunsheet = !this.showCreateRunsheet;
-                this.runsheet.selectedOrders = [];
-                this.render();
-            },
+      try {
+        const docRef = await App.db.collection('riders').add(rider);
+        this.riders.push({ id: docRef.id, ...rider });
+        this.newRider = { name: '', phone: '', vehicle: '' };
+        this.showAddRider = false;
+        this.saving = false;
+        this.render();
+        alert('✅ Rider added!');
+      } catch (error) {
+        console.error('❌ Add rider error:', error);
+        this.saving = false;
+        this.render();
+        alert('❌ Failed: ' + error.message);
+      }
+    };
 
-            selectOrder(customerId, washNumber) {
-                if (!this.showCreateRunsheet) return;
-                const exists = this.runsheet.selectedOrders.find(o => o.customerId === customerId && o.washNumber === washNumber);
-                if (exists) {
-                    this.runsheet.selectedOrders = this.runsheet.selectedOrders.filter(o => !(o.customerId === customerId && o.washNumber === washNumber));
-                } else {
-                    this.runsheet.selectedOrders.push({ customerId, washNumber });
-                }
-                this.render();
-            },
+    App.toggleOrderSelection = function(customerId, washNumber) {
+      const orderKey = `${customerId}-${washNumber}`;
+      const index = this.selectedOrders.findIndex(o => o.key === orderKey);
+      
+      if (index > -1) {
+        this.selectedOrders.splice(index, 1);
+      } else {
+        const customer = this.customers.find(c => c.id === customerId);
+        const wash = customer.washes.find(w => w.washNumber === washNumber);
+        this.selectedOrders.push({
+          key: orderKey,
+          customerId, washNumber,
+          customerName: customer.name,
+          customerPhone: customer.phone,
+          customerAddress: customer.address,
+          status: wash.status,
+          pickupCode: wash.pickupCode
+        });
+      }
+      this.render();
+    };
 
-            generateCode() {
-                return Math.floor(1000 + Math.random() * 9000).toString();
-            },
+    App.isOrderSelected = function(customerId, washNumber) {
+      return this.selectedOrders.some(o => o.key === `${customerId}-${washNumber}`);
+    };
 
-            getStatusColor(status) {
-                const colors = {
-                    'pending': 'bg-gray-200 text-gray-700',
-                    'picked-up': 'bg-blue-500 text-white',
-                    'ofd': 'bg-orange-500 text-white',
-                    'delivered': 'bg-green-500 text-white'
-                };
-                return colors[status] || 'bg-gray-200 text-gray-700';
-            },
+    App.createRunsheet = async function() {
+      if (!this.runsheetData.riderId) return alert('Select rider');
+      if (this.selectedOrders.length === 0) return alert('Select orders');
 
-            getCompletedWashes(customer) {
-                return customer.washes ? customer.washes.filter(w => w.status === 'delivered').length : 0;
-            },
+      this.saving = true;
+      this.render();
 
-            getFilteredCustomers() {
-                return this.customers.filter(customer =>
-                    customer.name.toLowerCase().includes(this.searchTerm.toLowerCase()) ||
-                    customer.phone.includes(this.searchTerm)
-                );
-            },
+      const rider = this.riders.find(r => r.id === this.runsheetData.riderId);
+      const runsheetId = `RS${Date.now()}`;
+      const batch = App.db.batch();
 
-            copyCode(code) {
-                navigator.clipboard.writeText(code).then(() => {
-                    this.copiedCode = code;
-                    this.render();
-                    setTimeout(() => {
-                        this.copiedCode = null;
-                        this.render();
-                    }, 2000);
-                });
-            },
+      const runsheet = {
+        runsheetId, riderId: this.runsheetData.riderId,
+        riderName: rider.name, riderPhone: rider.phone, riderVehicle: rider.vehicle,
+        type: this.runsheetData.type, date: this.runsheetData.date,
+        orders: this.selectedOrders,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        status: 'active'
+      };
 
-            render() {
-                const root = document.getElementById('root');
-                const filteredCustomers = this.getFilteredCustomers();
+      const runsheetRef = App.db.collection('runsheets').doc(runsheetId);
+      batch.set(runsheetRef, runsheet);
 
-                root.innerHTML = `
-                    <div class="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-4">
-                        ${this.copiedCode ? `
-                            <div class="fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 z-50 animate-bounce">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
-                                <span class="font-semibold">Order ID ${this.copiedCode} Copied!</span>
-                            </div>
-                        ` : ''}
+      // Batch update orders
+      this.selectedOrders.forEach(order => {
+        const customerRef = App.db.collection('customers').doc(order.customerId);
+        batch.update(customerRef, { 
+          [`washes.${order.washNumber - 1}.status`]: 'ofd' 
+        });
+      });
 
-                        ${this.loading ? `
-                            <div class="min-h-screen flex items-center justify-center">
-                                <div class="text-center">
-                                    <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-500 mx-auto mb-4"></div>
-                                    <p class="text-gray-300 text-lg">Loading Purple Cow Laundry Tracker...</p>
-                                    <p class="text-gray-500 text-sm mt-2">Firebase: ${firebaseInitialized ? '✅ Connected' : '❌ Offline'}</p>
-                                </div>
-                            </div>
-                        ` : `
-                            <div class="max-w-7xl mx-auto space-y-6">
-                                <!-- Header -->
-                                <div class="bg-gray-800 rounded-xl shadow-2xl p-6 border border-purple-500/30">
-                                    <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
-                                        <div>
-                                            <h1 class="text-4xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent mb-2">
-                                                🐄 Purple Cow Laundry
-                                            </h1>
-                                            <p class="text-gray-300 text-lg">Complete workflow: Riders → Runsheets → OFD → Delivery</p>
-                                        </div>
-                                        <div class="text-right">
-                                            <div class="text-2xl font-bold text-green-400 mb-1">Ready</div>
-                                            <div class="flex items-center gap-4 text-sm text-gray-300">
-                                                <span>Riders: ${this.riders.length}</span>
-                                                <span>Customers: ${this.customers.length}</span>
-                                                <span>Active Runsheets: ${this.runsheets.filter(r => !r?.closed).length}</span>
-                                            </div>
-                                        </div>
-                                    </div>
+      try {
+        await batch.commit();
+        this.currentRunsheet = runsheet;
+        this.saving = false;
+        this.render();
+        setTimeout(() => window.print(), 500);
+      } catch (error) {
+        console.error('❌ Runsheet error:', error);
+        this.saving = false;
+        this.render();
+        alert('❌ Failed: ' + error.message);
+      }
+    };
 
-                                    <!-- Action Buttons -->
-                                    <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-                                        <button onclick="App.showAddRider = !App.showAddRider; App.render();" 
-                                                class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition-all transform hover:scale-105">
-                                            👤 Add Rider
-                                        </button>
-                                        <button onclick="App.toggleRunsheetMode()" 
-                                                class="bg-yellow-600 hover:bg-yellow-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition-all transform hover:scale-105 ${this.showCreateRunsheet ? 'ring-2 ring-yellow-400 animate-pulse' : ''}">
-                                            📋 ${this.showCreateRunsheet ? 'Cancel' : 'Create'} Runsheet
-                                        </button>
-                                        <button onclick="App.showRunsheetDashboard = !App.showRunsheetDashboard; App.render();" 
-                                                class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition-all transform hover:scale-105">
-                                            📊 ${this.showRunsheetDashboard ? 'Hide' : 'Show'} Dashboard
-                                        </button>
-                                        <button onclick="App.showAddCustomer = !App.showAddCustomer; App.render();" 
-                                                class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition-all transform hover:scale-105 ring-2 ring-purple-400 animate-pulse">
-                                            ➕ Add Customer
-                                        </button>
-                                    </div>
-                                </div>
+    App.closeRunsheet = function() {
+      this.currentRunsheet = null;
+      this.selectedOrders = [];
+      this.runsheetMode = false;
+      this.showCreateRunsheet = false;
+      this.runsheetData = { riderId: '', type: 'pickup', date: new Date().toISOString().split('T')[0] };
+      this.render();
+    };
 
-                                <!-- Search -->
-                                <div class="relative">
-                                    <svg class="absolute left-4 top-4 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                                    </svg>
-                                    <input type="text" placeholder="🔍 Search customers by name or phone..." 
-                                           value="${this.searchTerm}" 
-                                           oninput="App.searchTerm = this.value; App.render()"
-                                           class="w-full pl-12 pr-4 py-4 bg-gray-800 border-2 border-gray-700 rounded-xl focus:ring-4 focus:ring-purple-500 focus:border-purple-500 text-white placeholder-gray-400 text-lg shadow-lg">
-                                </div>
+    App.generateCode = function() {
+      return Math.floor(1000 + Math.random() * 9000).toString();
+    };
 
-                                <!-- ✅ FIXED: Add Customer Form -->
-                                ${this.showAddCustomer ? `
-                                    <div class="bg-gray-800 rounded-xl shadow-2xl p-8 border-4 border-purple-500/50 animate-pulse">
-                                        <div class="flex items-center justify-between mb-8">
-                                            <h2 class="text-3xl font-bold text-purple-400 flex items-center gap-3">
-                                                👤 Add New Customer
-                                            </h2>
-                                            <button onclick="App.showAddCustomer = false; App.render();" 
-                                                    class="text-gray-400 hover:text-white text-2xl font-bold transition">
-                                                ✕
-                                            </button>
-                                        </div>
-                                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                                            <div>
-                                                <label class="block text-lg font-semibold text-gray-200 mb-4">Customer Details</label>
-                                                <div class="space-y-4">
-                                                    <div>
-                                                        <label class="block text-sm font-medium text-gray-300 mb-2">👤 Name *</label>
-                                                        <input type="text" 
-                                                               value="${this.newCustomer.name}" 
-                                                               oninput="App.newCustomer.name = this.value"
-                                                               class="w-full px-6 py-4 bg-gray-700 border-2 border-gray-600 rounded-xl focus:ring-4 focus:ring-purple-500 focus:border-purple-500 text-white text-lg font-semibold" 
-                                                               placeholder="Enter customer name">
-                                                    </div>
-                                                    <div>
-                                                        <label class="block text-sm font-medium text-gray-300 mb-2">📱 Phone *</label>
-                                                        <input type="tel" 
-                                                               value="${this.newCustomer.phone}" 
-                                                               oninput="App.newCustomer.phone = this.value"
-                                                               class="w-full px-6 py-4 bg-gray-700 border-2 border-gray-600 rounded-xl focus:ring-4 focus:ring-purple-500 focus:border-purple-500 text-white text-lg font-semibold" 
-                                                               placeholder="Enter phone number">
-                                                    </div>
-                                                    <div>
-                                                        <label class="block text-sm font-medium text-gray-300 mb-2">🏠 Address</label>
-                                                        <input type="text" 
-                                                               value="${this.newCustomer.address}" 
-                                                               oninput="App.newCustomer.address = this.value"
-                                                               class="w-full px-6 py-4 bg-gray-700 border-2 border-gray-600 rounded-xl focus:ring-4 focus:ring-purple-500 focus:border-purple-500 text-white text-lg" 
-                                                               placeholder="Enter complete address">
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <label class="block text-lg font-semibold text-gray-200 mb-4">Plan Details</label>
-                                                <div class="space-y-4">
-                                                    <div>
-                                                        <label class="block text-sm font-medium text-gray-300 mb-2">💰 Plan Amount</label>
-                                                        <input type="text" 
-                                                               value="${this.newCustomer.plan}" 
-                                                               oninput="App.newCustomer.plan = this.value"
-                                                               class="w-full px-6 py-4 bg-gray-900 border border-gray-600 rounded-xl text-white text-lg font-bold text-2xl text-right" 
-                                                               style="font-family: 'Courier New', monospace;">
-                                                    </div>
-                                                    <div>
-                                                        <label class="block text-sm font-medium text-gray-300 mb-2">📅 Start Date</label>
-                                                        <input type="date" 
-                                                               value="${this.newCustomer.startDate}" 
-                                                               onchange="App.newCustomer.startDate = this.value"
-                                                               class="w-full px-6 py-4 bg-gray-700 border-2 border-gray-600 rounded-xl focus:ring-4 focus:ring-purple-500 focus:border-purple-500 text-white text-lg">
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div class="flex flex-col sm:flex-row gap-4 mt-12 pt-8 border-t-2 border-purple-500/30">
-                                            <button onclick="App.addCustomer()" 
-                                                    class="${this.saving ? 'bg-gray-600 cursor-not-allowed' : 'bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800'} text-white px-12 py-4 rounded-xl font-bold text-xl shadow-2xl transition-all transform hover:scale-105 flex-1 flex items-center justify-center gap-3 ${this.saving ? 'opacity-50' : ''}">
-                                                ${this.saving ? '⏳ Saving...' : '💾 Save Customer'}
-                                            </button>
-                                            <button onclick="App.showAddCustomer = false; App.render();" 
-                                                    class="bg-gray-600 hover:bg-gray-700 text-white px-12 py-4 rounded-xl font-bold text-xl shadow-lg transition-all transform hover:scale-105 flex-1">
-                                                ❌ Cancel
-                                            </button>
-                                        </div>
-                                    </div>
-                                ` : ''}
+    App.sendWhatsAppNotification = function(phone, customerName, washNumber, type, code, completedWashes) {
+      navigator.clipboard.writeText(code).then(() => {
+        this.copiedCode = code;
+        this.render();
+        setTimeout(() => { this.copiedCode = null; this.render(); }, 2000);
+      });
 
-                                <!-- Runsheet Dashboard -->
-                                ${this.showRunsheetDashboard ? `
-                                    <div class="bg-gray-800 rounded-xl shadow-2xl p-6 border border-green-500/30">
-                                        <h2 class="text-2xl font-bold text-green-400 mb-6 flex items-center gap-3">
-                                            📊 Runsheet Dashboard
-                                            <span class="bg-green-500/20 px-3 py-1 rounded-full text-sm">Active: ${this.runsheets.filter(r => !r?.closed).length}</span>
-                                        </h2>
-                                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                            ${this.runsheets.slice(0, 9).map(runsheet => {
-                                                const deliveredCount = runsheet.orders.reduce((count, order) => {
-                                                    const customer = this.customers.find(c => c.id === order.customerId);
-                                                    const wash = customer?.washes?.find(w => w.washNumber === order.washNumber);
-                                                    return wash?.status === 'delivered' ? count + 1 : count;
-                                                }, 0);
-                                                const progress = Math.round((deliveredCount / runsheet.orders.length) * 100);
-                                                const rider = runsheet.rider || {};
-                                                return `
-                                                    <div class="bg-gray-900 border-2 ${runsheet.closed ? 'border-green-500' : 'border-yellow-500'} rounded-xl p-6 hover:shadow-2xl transition-all">
-                                                        <div class="flex justify-between items-start mb-4">
-                                                            <h3 class="font-bold text-xl text-yellow-400">${runsheet.runsheetId || 'RS-' + runsheet.id.slice(-6)}</h3>
-                                                            <span class="px-3 py-1 rounded-full text-xs font-bold ${
-                                                                runsheet.closed ? 'bg-green-500 text-white' : 
-                                                                progress === 100 ? 'bg-blue-500 text-white' : 'bg-orange-500 text-white'
-                                                            }">${runsheet.closed ? '✅ CLOSED' : `${deliveredCount}/${runsheet.orders.length} Delivered`}</span>
-                                                        </div>
-                                                        <div class="space-y-2 mb-4">
-                                                            <div><span class="text-gray-400">👤 Rider:</span> ${rider.name || 'N/A'} (${rider.vehicle || ''})</div>
-                                                            <div><span class="text-gray-400">📅 Date:</span> ${runsheet.date || 'N/A'}</div>
-                                                            <div><span class="text-gray-400">📦 Type:</span> <span class="px-2 py-1 bg-blue-500 text-white rounded text-sm">${runsheet.type?.toUpperCase()}</span></div>
-                                                        </div>
-                                                        <div class="w-full bg-gray-700 rounded-full h-2">
-                                                            <div class="bg-gradient-to-r from-green-400 to-blue-500 h-2 rounded-full transition-all" style="width: ${progress}%"></div>
-                                                        </div>
-                                                        <div class="text-right mt-3 text-sm text-gray-400">${progress}% Complete</div>
-                                                    </div>
-                                                `;
-                                            }).join('')}
-                                        </div>
-                                    </div>
-                                ` : ''}
+      let cleanPhone = phone.replace(/[^0-9]/g, '');
+      if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
+      
+      const currentDate = new Date().toLocaleDateString('en-IN');
+      let message = type === 'pickup' 
+        ? `✨ *PURPLE COW LAUNDRY* 🐄\n\n👋 Hello *${customerName}*!\n\n📦 *PICKUP CONFIRMED!* ✅\n🔢 *Order ID:* #${code}\n🧺 *Wash:* ${washNumber}/10\n📊 *Progress:* ${completedWashes}/10\n📅 *Date:* ${currentDate}\n\n✨ Premium wash & dry service\n💡 *Track:* #${code}\n\n🙏 Thank you!`
+        : `✨ *PURPLE COW LAUNDRY* 🐄\n\n👋 Hello *${customerName}*!\n\n🎉 *DELIVERY COMPLETED!* ✅\n🔢 *Order ID:* #${code}\n🧺 *Wash:* ${washNumber}/10\n📊 *Progress:* ${completedWashes}/10\n📅 *Delivered:* ${currentDate}\n\n✨ Fresh laundry delivered!\n${completedWashes === 10 ? '🎊 All 10 washes completed! 🎊' : ''}\n\n🙏 Thank you!`;
 
-                                <!-- Customer List -->
-                                ${filteredCustomers.length === 0 ? `
-                                    <div class="bg-gray-800 rounded-xl shadow-2xl p-12 text-center border-2 border-purple-500/30">
-                                        <svg class="w-24 h-24 mx-auto text-gray-600 mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                                        </svg>
-                                        <h3 class="text-2xl font-semibold text-gray-300 mb-2">No Customers Yet</h3>
-                                        <p class="text-gray-400 text-lg">Click "➕ Add Customer" to get started!</p>
-                                    </div>
-                                ` : filteredCustomers.map(customer => {
-                                    const completedWashes = this.getCompletedWashes(customer);
-                                    const progressPercent = Math.round((completedWashes / 10) * 100);
-                                    return `
-                                        <div class="bg-gray-800 rounded-xl shadow-2xl p-6 border-2 border-purple-500/30 hover:shadow-3xl transition-all lg:col-span-1">
-                                            <div class="flex items-start justify-between mb-4 pb-4 border-b border-gray-700">
-                                                <div>
-                                                    <h3 class="text-xl font-bold text-purple-400">${customer.name}</h3>
-                                                    <p class="text-gray-300 flex items-center gap-2 mt-1">📱 ${customer.phone}</p>
-                                                    ${customer.address ? `
-                                                        <div class="flex items-center gap-2 mt-2">
-                                                            <span class="text-gray-400">🏠</span>
-                                                            <span class="text-gray-300">${customer.address}</span>
-                                                        </div>
-                                                    ` : ''}
-                                                </div>
-                                                <div class="bg-purple-600 text-white px-4 py-2 rounded-lg font-bold">₹${customer.plan}</div>
-                                            </div>
-                                            <div class="mb-6">
-                                                <div class="flex justify-between text-sm text-gray-300 mb-2">
-                                                    <span>Progress</span> <span class="font-semibold">${completedWashes}/10</span>
-                                                </div>
-                                                <div class="w-full bg-gray-700 rounded-full h-3">
-                                                    <div class="bg-gradient-to-r from-purple-500 to-blue-500 h-3 rounded-full" style="width: ${progressPercent}%"></div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    `;
-                                }).join('')}
-                            </div>
-                        `}
+      window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
+    };
+
+    App.updateWashStatus = async function(customerId, washNumber, status, dateType) {
+      const customer = this.customers.find(c => c.id === customerId);
+      if (!customer) return;
+
+      const washIndex = customer.washes.findIndex(w => w.washNumber === washNumber);
+      if (washIndex === -1) return;
+
+      const wash = { ...customer.washes[washIndex], status };
+      let completedCount = customer.washes.filter(w => w.status === 'delivered').length;
+
+      if (dateType === 'pickup' && status === 'picked-up') {
+        wash.pickupDate = new Date().toISOString().split('T')[0];
+        wash.pickupCode = this.generateCode();
+        setTimeout(() => this.sendWhatsAppNotification(customer.phone, customer.name, washNumber, 'pickup', wash.pickupCode, completedCount), 100);
+      } else if (dateType === 'delivery' && status === 'delivered') {
+        wash.deliveryDate = new Date().toISOString().split('T')[0];
+        wash.deliveryCode = this.generateCode();
+        completedCount++;
+        setTimeout(() => this.sendWhatsAppNotification(customer.phone, customer.name, washNumber, 'delivery', wash.deliveryCode, completedCount), 100);
+      }
+
+      customer.washes[washIndex] = wash;
+
+      try {
+        await App.db.collection('customers').doc(customerId).update({ washes: customer.washes });
+        this.render();
+      } catch (error) {
+        console.error('❌ Status update error:', error);
+      }
+    };
+
+    App.getStatusColor = function(status) {
+      const colors = {
+        pending: 'bg-gray-200 text-gray-700',
+        'picked-up': 'bg-blue-500 text-white',
+        ofd: 'bg-orange-500 text-white',
+        delivered: 'bg-green-500 text-white'
+      };
+      return colors[status] || 'bg-gray-200 text-gray-700';
+    };
+
+    App.getCompletedWashes = function(customer) {
+      return customer.washes.filter(w => w.status === 'delivered').length;
+    };
+
+    App.getFilteredCustomers = function() {
+      return this.customers.filter(customer =>
+        customer.name.toLowerCase().includes(this.searchTerm.toLowerCase()) ||
+        customer.phone.includes(this.searchTerm)
+      );
+    };
+
+    // Render
+    App.render = function() {
+      const root = document.getElementById('root');
+      const filteredCustomers = this.getFilteredCustomers();
+
+      if (this.currentRunsheet) {
+        root.innerHTML = `
+          <div class="min-h-screen bg-gray-900 p-8">
+            <div id="printable-runsheet" class="max-w-4xl mx-auto bg-white p-8 rounded-lg">
+              <div class="text-center border-b-4 border-purple-600 pb-4 mb-6">
+                <h1 class="text-3xl font-bold text-purple-600">🐄 PURPLE COW LAUNDRY</h1>
+                <p class="text-gray-600 mt-1">Delivery Runsheet</p>
+              </div>
+              <div class="grid grid-cols-2 gap-6 mb-6">
+                <div>
+                  <h3 class="font-bold text-gray-700 mb-2">Runsheet Details</h3>
+                  <p><strong>ID:</strong> ${this.currentRunsheet.runsheetId}</p>
+                  <p><strong>Type:</strong> ${this.currentRunsheet.type.toUpperCase()}</p>
+                  <p><strong>Date:</strong> ${this.currentRunsheet.date}</p>
+                  <p><strong>Orders:</strong> ${this.currentRunsheet.orders.length}</p>
+                </div>
+                <div>
+                  <h3 class="font-bold text-gray-700 mb-2">Rider Details</h3>
+                  <p><strong>Name:</strong> ${this.currentRunsheet.riderName}</p>
+                  <p><strong>Phone:</strong> ${this.currentRunsheet.riderPhone}</p>
+                  <p><strong>Vehicle:</strong> ${this.currentRunsheet.riderVehicle || 'N/A'}</p>
+                </div>
+              </div>
+              <table class="w-full border-collapse border border-gray-300 mb-6">
+                <thead><tr class="bg-purple-100">
+                  <th class="border border-gray-300 px-3 py-2 text-left">#</th>
+                  <th class="border border-gray-300 px-3 py-2 text-left">Customer</th>
+                  <th class="border border-gray-300 px-3 py-2 text-left">Phone</th>
+                  <th class="border border-gray-300 px-3 py-2 text-left">Address</th>
+                  <th class="border border-gray-300 px-3 py-2 text-left">Wash</th>
+                  <th class="border border-gray-300 px-3 py-2 text-left">Order ID</th>
+                  <th class="border border-gray-300 px-3 py-2 text-left">Signature</th>
+                </tr></thead>
+                <tbody>
+                  ${this.currentRunsheet.orders.map((order, i) => `
+                    <tr>
+                      <td class="border border-gray-300 px-3 py-2">${i+1}</td>
+                      <td class="border border-gray-300 px-3 py-2">${order.customerName}</td>
+                      <td class="border border-gray-300 px-3 py-2">${order.customerPhone}</td>
+                      <td class="border border-gray-300 px-3 py-2">${order.customerAddress || 'N/A'}</td>
+                      <td class="border border-gray-300 px-3 py-2">${order.washNumber}</td>
+                      <td class="border border-gray-300 px-3 py-2 font-bold">#${order.pickupCode || 'N/A'}</td>
+                      <td class="border border-gray-300 px-3 py-2"></td>
+                    </tr>`).join('')}
+                </tbody>
+              </table>
+              <div class="grid grid-cols-2 gap-6 mt-8 pt-6 border-t border-gray-300">
+                <div><p class="font-bold mb-2">Rider Signature:</p><div class="border-b-2 border-gray-400 h-16"></div></div>
+                <div><p class="font-bold mb-2">Manager Signature:</p><div class="border-b-2 border-gray-400 h-16"></div></div>
+              </div>
+              <div class="mt-6 text-center text-sm text-gray-600">
+                <p>Generated: ${new Date().toLocaleString('en-IN')}</p>
+                <p>Purple Cow Laundry - India's Most Trusted</p>
+              </div>
+            </div>
+            <div class="max-w-4xl mx-auto mt-6 flex gap-4 justify-center print:hidden">
+              <button onclick="window.print()" class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg">🖨️ Print</button>
+              <button onclick="App.closeRunsheet()" class="bg-gray-600 hover:bg-gray-700 text-white px-6 py-3 rounded-lg font-semibold">Close</button>
+            </div>
+          </div>`;
+        return;
+      }
+
+      root.innerHTML = `
+        <div class="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-4">
+          ${this.copiedCode ? `<div class="fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 z-50 animate-bounce">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+            <span class="font-semibold">Copied #${this.copiedCode}!</span>
+          </div>` : ''}
+          
+          ${this.loading ? `<div class="min-h-screen flex items-center justify-center">
+            <div class="text-center"><div class="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-500 mx-auto mb-4"></div>
+            <p class="text-gray-300 text-lg">Loading...</p></div></div>` : `
+            <div class="max-w-7xl mx-auto">
+              <div class="bg-gray-800 rounded-lg shadow-2xl p-6 mb-6 border border-purple-500/30">
+                <div class="flex items-center justify-between mb-4">
+                  <div>
+                    <h1 class="text-3xl font-bold text-purple-400 flex items-center gap-2">🐄 Purple Cow Laundry Tracker</h1>
+                    <p class="text-gray-300 mt-1">Track 10-wash plans</p>
+                  </div>
+                  <div class="flex gap-3">
+                    <button onclick="App.showAddRider = !App.showAddRider; App.showAddCustomer = false; App.showCreateRunsheet = false; App.render();" 
+                      class="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-3 rounded-lg flex items-center gap-2 transition shadow-lg">🏍️ Add Rider</button>
+                    <button onclick="App.runsheetMode = !App.runsheetMode; App.showCreateRunsheet = App.runsheetMode; App.showAddCustomer = App.showAddRider = false; if(!App.runsheetMode) App.selectedOrders = []; App.render();" 
+                      class="${this.runsheetMode ? 'bg-orange-600 hover:bg-orange-700' : 'bg-blue-600 hover:bg-blue-700'} text-white px-4 py-3 rounded-lg flex items-center gap-2 transition shadow-lg">
+                      📋 ${this.runsheetMode ? 'Cancel' : 'Create Runsheet'}
+                    </button>
+                    <button onclick="App.showAddCustomer = !App.showAddCustomer; App.showAddRider = App.showCreateRunsheet = false; App.render();" 
+                      class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-3 rounded-lg flex items-center gap-2 transition shadow-lg">
+                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg> Add Customer
+                    </button>
+                  </div>
+                </div>
+                ${this.runsheetMode && this.selectedOrders.length ? `<div class="bg-orange-600 text-white px-4 py-3 rounded-lg mb-4">
+                  <div class="flex items-center justify-between"><span class="font-semibold">📦 ${this.selectedOrders.length} selected</span>
+                  <button onclick="App.selectedOrders = []; App.render();" class="bg-white text-orange-600 px-3 py-1 rounded text-sm font-semibold hover:bg-gray-100">Clear</button></div></div>` : ''}
+                <div class="relative">
+                  <svg class="absolute left-3 top-3 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                  <input type="text" placeholder="Search name/phone..." value="${this.searchTerm}" 
+                    oninput="App.searchTerm = this.value; App.render();" 
+                    class="w-full pl-10 pr-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white">
+                </div>
+              </div>
+
+              ${this.showAddRider ? `<div class="bg-gray-800 rounded-lg shadow-2xl p-6 mb-6 border border-yellow-500/30">
+                <h2 class="text-xl font-bold text-yellow-400 mb-4">🏍️ Add Rider</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div><label class="block text-sm font-medium text-gray-300 mb-2">Name *</label>
+                    <input type="text" value="${this.newRider.name}" oninput="App.newRider.name = this.value" 
+                      class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 text-white" placeholder="Name"></div>
+                  <div><label class="block text-sm font-medium text-gray-300 mb-2">Phone *</label>
+                    <input type="tel" value="${this.newRider.phone}" oninput="App.newRider.phone = this.value" 
+                      class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 text-white" placeholder="Phone"></div>
+                  <div><label class="block text-sm font-medium text-gray-300 mb-2">Vehicle</label>
+                    <input type="text" value="${this.newRider.vehicle}" oninput="App.newRider.vehicle = this.value" 
+                      class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 text-white" placeholder="Vehicle No"></div>
+                </div>
+                <div class="mt-6 flex gap-3">
+                  <button onclick="App.addRider()" class="${this.saving ? 'bg-gray-500 cursor-not-allowed' : 'bg-yellow-600 hover:bg-yellow-700'} text-white px-8 py-3 rounded-lg font-semibold shadow-lg flex-1">
+                    ${this.saving ? 'Saving...' : 'Add Rider'}
+                  </button>
+                  <button onclick="App.showAddRider = false; App.render();" class="bg-gray-600 hover:bg-gray-700 text-white px-8 py-3 rounded-lg font-semibold">Cancel</button>
+                </div></div>` : ''}
+
+              ${this.showAddCustomer ? `<div class="bg-gray-800 rounded-lg shadow-2xl p-6 mb-6 border border-purple-500/30">
+                <h2 class="text-xl font-bold text-purple-400 mb-4">👤 Add Customer</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                  <div><label class="block text-sm font-medium text-gray-300 mb-2">Name *</label>
+                    <input type="text" value="${this.newCustomer.name}" oninput="App.newCustomer.name = this.value" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white"></div>
+                  <div><label class="block text-sm font-medium text-gray-300 mb-2">Phone *</label>
+                    <input type="tel" value="${this.newCustomer.phone}" oninput="App.newCustomer.phone = this.value" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white"></div>
+                  <div class="md:col-span-2"><label class="block text-sm font-medium text-gray-300 mb-2">Address</label>
+                    <textarea value="${this.newCustomer.address}" oninput="App.newCustomer.address = this.value" rows="2" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white"></textarea></div>
+                  <div><label class="block text-sm font-medium text-gray-300 mb-2">Plan</label>
+                    <select value="${this.newCustomer.plan}" oninput="App.newCustomer.plan = this.value" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white">
+                      <option value="2699">₹2699 (10 washes)</option>
+                    </select></div>
+                  <div><label class="block text-sm font-medium text-gray-300 mb-2">Start Date</label>
+                    <input type="date" value="${this.newCustomer.startDate}" oninput="App.newCustomer.startDate = this.value" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white"></div>
+                </div>
+                <div class="flex gap-3">
+                  <button onclick="App.addCustomer()" class="${this.saving ? 'bg-gray-500 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700'} text-white px-8 py-3 rounded-lg font-semibold shadow-lg flex-1">
+                    ${this.saving ? 'Saving...' : 'Add Customer'}
+                  </button>
+                  <button onclick="App.showAddCustomer = false; App.render();" class="bg-gray-600 hover:bg-gray-700 text-white px-8 py-3 rounded-lg font-semibold">Cancel</button>
+                </div></div>` : ''}
+
+              ${this.runsheetMode ? `<div class="bg-gray-800 rounded-lg shadow-2xl p-6 mb-6 border border-orange-500/30">
+                <h3 class="text-xl font-bold text-orange-400 mb-4">📋 Create Runsheet</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  <div><label class="block text-sm font-medium text-gray-300 mb-2">Rider *</label>
+                    <select value="${this.runsheetData.riderId}" onchange="App.runsheetData.riderId = this.value; App.render()" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 text-white">
+                      <option value="">Select Rider</option>
+                      ${this.riders.map(r => `<option value="${r.id}">${r.name} (${r.phone})</option>`).join('')}
+                    </select></div>
+                  <div><label class="block text-sm font-medium text-gray-300 mb-2">Type</label>
+                    <select value="${this.runsheetData.type}" onchange="App.runsheetData.type = this.value; App.render()" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 text-white">
+                      <option value="pickup">Pickup</option>
+                      <option value="delivery">Delivery</option>
+                    </select></div>
+                  <div><label class="block text-sm font-medium text-gray-300 mb-2">Date</label>
+                    <input type="date" value="${this.runsheetData.date}" onchange="App.runsheetData.date = this.value" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 text-white"></div>
+                </div>
+                <button onclick="App.createRunsheet()" class="${!this.runsheetData.riderId || this.selectedOrders.length === 0 || this.saving ? 'bg-gray-500 cursor-not-allowed' : 'bg-orange-600 hover:bg-orange-700'} text-white px-12 py-3 rounded-lg font-semibold shadow-lg w-full">
+                  ${this.saving ? 'Creating...' : `Create Runsheet (${this.selectedOrders.length} orders)`}
+                </button></div>` : ''}
+
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                ${filteredCustomers.map(customer => `
+                  <div class="bg-gray-800 rounded-xl shadow-2xl p-6 border border-gray-700 hover:border-purple-500/50 transition-all group">
+                    <div class="flex justify-between items-start mb-4">
+                      <h3 class="text-xl font-bold text-white truncate">${customer.name}</h3>
+                      <div class="text-right">
+                        <div class="${this.getStatusColor(customer.washes[0]?.status)} px-2 py-1 rounded text-xs font-medium mb-1">${customer.washes[0]?.status?.toUpperCase() || 'PENDING'}</div>
+                        <div class="text-sm text-green-400 font-semibold">${this.getCompletedWashes(customer)}/10 washes</div>
+                      </div>
                     </div>
-                `;
-            }
-        };
+                    <p class="text-gray-400 text-sm mb-2">📞 ${customer.phone}</p>
+                    ${customer.address ? `<p class="text-gray-400 text-sm mb-4 line-clamp-2">${customer.address}</p>` : ''}
+                    <div class="space-y-2">
+                      ${customer.washes.map(wash => `
+                        <div key="${wash.washNumber}" class="flex items-center justify-between p-2 bg-gray-700/50 rounded-lg group-hover:bg-gray-700 transition">
+                          <span class="text-sm font-medium text-gray-200">Wash #${wash.washNumber}</span>
+                          <div class="flex items-center gap-2">
+                            ${this.runsheetMode ? `<input type="checkbox" ${this.isOrderSelected(customer.id, wash.washNumber) ? 'checked' : ''} 
+                              onchange="App.toggleOrderSelection('${customer.id}', ${wash.washNumber})" class="w-4 h-4 text-orange-500 rounded focus:ring-orange-500">` : ''}
+                            <span class="${this.getStatusColor(wash.status)} px-2 py-1 rounded text-xs font-medium">${wash.status.toUpperCase()}</span>
+                            ${wash.pickupCode ? `<button onclick="navigator.clipboard.writeText('${wash.pickupCode}'); App.copiedCode='${wash.pickupCode}'; App.render(); setTimeout(() => {App.copiedCode=null; App.render();}, 2000);" 
+                              class="text-xs bg-blue-500/20 hover:bg-blue-500/40 text-blue-300 px-2 py-1 rounded transition" title="Copy #${wash.pickupCode}">#${wash.pickupCode}</button>` : ''}
+                          </div>
+                        </div>`).join('')}
+                    </div>
+                    ${!this.runsheetMode ? `
+                      <div class="mt-4 pt-4 border-t border-gray-700 flex gap-2">
+                        <select onchange="App.updateWashStatus('${customer.id}', 1, this.value, 'pickup')" class="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 text-white">
+                          <option value="pending" ${customer.washes[0]?.status === 'pending' ? 'selected' : ''}>Pending</option>
+                          <option value="picked-up" ${customer.washes[0]?.status === 'picked-up' ? 'selected' : ''}>Picked Up</option>
+                          <option value="ofd" ${customer.washes[0]?.status === 'ofd' ? 'selected' : ''}>OFD</option>
+                          <option value="delivered" ${customer.washes[0]?.status === 'delivered' ? 'selected' : ''}>Delivered</option>
+                        </select>
+                        <button onclick="App.loadCustomers(); App.render();" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-semibold shadow-lg whitespace-nowrap">Refresh</button>
+                      </div>` : ''}
+                  </div>`).join('')}
+              </div>
+              ${filteredCustomers.length === 0 ? `<div class="text-center py-12 text-gray-400">
+                <p class="text-2xl mb-4">📭 No customers found</p>
+                <p>${this.searchTerm ? 'Try different search' : 'Add your first customer'}</p></div>` : ''}
+            </div>`}
+        </div>`;
+    };
 
-        document.addEventListener('DOMContentLoaded', () => App.init());
-        App.init();
-    </script>
+    // Start App
+    App.init();
+  </script>
 </body>
 </html>
