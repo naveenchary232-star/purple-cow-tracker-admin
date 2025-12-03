@@ -24,7 +24,7 @@
     <div id="root"></div>
 
     <script>
-        // FIREBASE CONFIGURATION
+        // FIREBASE CONFIGURATION - UPDATE WITH YOUR ACTUAL CONFIG
         const firebaseConfig = {
             apiKey: "AIzaSyCorv41Qlud5cK4dvABePg6boVAr8vEJU",
             authDomain: "purple-cow-admin-2232f.firebaseapp.com",
@@ -36,19 +36,19 @@
             measurementId: "G-TE32V3BTHE"
         };
 
-        // Initialize Firebase
         let db;
         let firebaseInitialized = false;
+
         try {
             firebase.initializeApp(firebaseConfig);
             db = firebase.firestore();
             firebaseInitialized = true;
-            console.log("Firebase initialized successfully");
+            console.log("✅ Firebase initialized successfully");
         } catch (error) {
-            console.error("Firebase initialization error:", error);
+            console.error("❌ Firebase initialization error:", error);
+            firebaseInitialized = false;
         }
 
-        // COMPLETE LAUNDRY TRACKER APPLICATION
         const App = {
             customers: [],
             riders: [],
@@ -68,15 +68,26 @@
             runsheet: { riderId: '', type: 'pickup', date: new Date().toISOString().split('T')[0], selectedOrders: [] },
 
             async init() {
-                console.log("Initializing complete app...");
+                console.log("🚀 Initializing app...");
+                this.render(); // Render loading screen first
+                
                 if (!firebaseInitialized) {
                     this.loading = false;
                     this.render();
-                    alert("Firebase initialization failed. Please check your internet connection and refresh.");
                     return;
                 }
-                await Promise.all([this.loadCustomers(), this.loadRiders(), this.loadRunsheets()]);
-                this.loading = false;
+
+                try {
+                    await Promise.all([
+                        this.loadCustomers(), 
+                        this.loadRiders(), 
+                        this.loadRunsheets()
+                    ]);
+                    this.loading = false;
+                    console.log("✅ Data loaded successfully");
+                } catch (error) {
+                    console.error("❌ Error loading data:", error);
+                }
                 this.render();
             },
 
@@ -84,9 +95,10 @@
                 try {
                     const snapshot = await db.collection('customers').orderBy('startDate', 'desc').get();
                     this.customers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    console.log(`Loaded ${this.customers.length} customers`);
+                    console.log(`✅ Loaded ${this.customers.length} customers`);
                 } catch (error) {
-                    console.error("Error loading customers:", error);
+                    console.error("❌ Error loading customers:", error);
+                    this.customers = [];
                 }
             },
 
@@ -94,9 +106,10 @@
                 try {
                     const snapshot = await db.collection('riders').orderBy('name').get();
                     this.riders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    console.log(`Loaded ${this.riders.length} riders`);
+                    console.log(`✅ Loaded ${this.riders.length} riders`);
                 } catch (error) {
-                    console.error("Error loading riders:", error);
+                    console.error("❌ Error loading riders:", error);
+                    this.riders = [];
                 }
             },
 
@@ -104,66 +117,10 @@
                 try {
                     const snapshot = await db.collection('runsheets').orderBy('createdAt', 'desc').get();
                     this.runsheets = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    console.log(`✅ Loaded ${this.runsheets.length} runsheets`);
                 } catch (error) {
-                    console.error("Error loading runsheets:", error);
-                }
-            },
-
-            async addCustomer() {
-                if (!this.newCustomer.name || !this.newCustomer.phone) {
-                    alert("Please enter name and phone number");
-                    return;
-                }
-                this.saving = true;
-                this.render();
-
-                const customer = {
-                    name: this.newCustomer.name.trim(),
-                    phone: this.newCustomer.phone.trim(),
-                    address: this.newCustomer.address.trim(),
-                    plan: this.newCustomer.plan,
-                    startDate: this.newCustomer.startDate,
-                    washes: Array(10).fill(null).map((_, i) => ({
-                        washNumber: i + 1,
-                        status: 'pending',
-                        pickupDate: null,
-                        deliveryDate: null,
-                        pickupCode: null,
-                        deliveryCode: null,
-                        ofdComment: ''
-                    })),
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                };
-
-                try {
-                    const docRef = await db.collection('customers').add(customer);
-                    this.customers.unshift({ id: docRef.id, ...customer });
-                    this.newCustomer = { name: '', phone: '', address: '', plan: '2699', startDate: new Date().toISOString().split('T')[0] };
-                    this.showAddCustomer = false;
-                    this.saving = false;
-                    this.render();
-                    alert("Customer added successfully!");
-                } catch (error) {
-                    this.saving = false;
-                    this.render();
-                    alert("Failed to add customer: " + error.message);
-                }
-            },
-
-            async addRider() {
-                if (!this.newRider.name || !this.newRider.phone || !this.newRider.vehicle) {
-                    alert("Please fill all rider details");
-                    return;
-                }
-                try {
-                    const docRef = await db.collection('riders').add(this.newRider);
-                    this.riders.push({ id: docRef.id, ...this.newRider });
-                    this.newRider = { name: '', phone: '', vehicle: '' };
-                    this.showAddRider = false;
-                    this.render();
-                    alert("Rider added successfully!");
-                } catch (error) {
-                    alert("Failed to add rider: " + error.message);
+                    console.error("❌ Error loading runsheets:", error);
+                    this.runsheets = [];
                 }
             },
 
@@ -184,171 +141,22 @@
                 this.render();
             },
 
-            async createRunsheet() {
-                if (!this.runsheet.riderId || this.runsheet.selectedOrders.length === 0) {
-                    alert("Please select rider and at least one order");
-                    return;
-                }
-                const rider = this.riders.find(r => r.id === this.runsheet.riderId);
-                const runsheetData = {
-                    rider,
-                    type: this.runsheet.type,
-                    date: this.runsheet.date,
-                    orders: this.runsheet.selectedOrders,
-                    runsheetId: `RS${Date.now().toString().slice(-6)}`,
-                    closed: false,
-                    closedAt: null,
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                };
-
-                try {
-                    const docRef = await db.collection('runsheets').add(runsheetData);
-                    await this.updateOrdersToOFD(this.runsheet.selectedOrders);
-                    this.showCreateRunsheet = false;
-                    this.printRunsheetId = docRef.id;
-                    this.runsheet = { riderId: '', type: 'pickup', date: new Date().toISOString().split('T')[0], selectedOrders: [] };
-                    this.render();
-                    setTimeout(() => window.print(), 500);
-                    alert(`Runsheet created! ID: ${runsheetData.runsheetId}`);
-                } catch (error) {
-                    alert("Failed to create runsheet: " + error.message);
-                }
-            },
-
-            async updateOrdersToOFD(orders) {
-                for (const [customerId, washNumber] of orders) {
-                    const customer = this.customers.find(c => c.id === customerId);
-                    if (!customer) continue;
-                    const washIndex = customer.washes.findIndex(w => w.washNumber === washNumber);
-                    if (washIndex === -1) continue;
-                    customer.washes[washIndex].status = 'ofd';
-                    await db.collection('customers').doc(customerId).update({ washes: customer.washes });
-                    const customerIndex = this.customers.findIndex(c => c.id === customerId);
-                    if (customerIndex !== -1) {
-                        this.customers[customerIndex] = customer;
-                    }
-                    this.render();
-                }
-            },
-
-            async updateWashStatus(customerId, washNumber, status, dateType = null, ofdComment = null) {
-                const customerIndex = this.customers.findIndex(c => c.id === customerId);
-                if (customerIndex === -1) return;
-                const customer = this.customers[customerIndex];
-                const washIndex = customer.washes.findIndex(w => w.washNumber === washNumber);
-                if (washIndex === -1) return;
-                const wash = { ...customer.washes[washIndex], status };
-
-                if (dateType === 'pickup') {
-                    status = 'picked-up';
-                    wash.pickupDate = new Date().toISOString().split('T')[0];
-                    wash.pickupCode = this.generateCode();
-                    const completedCount = customer.washes.filter(w => w.status === 'delivered').length;
-                    setTimeout(() => this.sendWhatsAppNotification(customer.phone, customer.name, washNumber, 'pickup', wash.pickupCode, completedCount), 100);
-                } else if (dateType === 'delivery') {
-                    status = 'delivered';
-                    wash.deliveryDate = new Date().toISOString().split('T')[0];
-                    wash.deliveryCode = this.generateCode();
-                    const completedCount = customer.washes.filter(w => w.status === 'delivered').length + 1;
-                    setTimeout(() => this.sendWhatsAppNotification(customer.phone, customer.name, washNumber, 'delivery', wash.deliveryCode, completedCount), 100);
-                }
-
-                if (ofdComment !== null) {
-                    wash.ofdComment = ofdComment;
-                }
-
-                customer.washes[washIndex] = wash;
-                this.customers[customerIndex] = customer;
-
-                try {
-                    await db.collection('customers').doc(customerId).update({ washes: customer.washes });
-                    await this.checkAndCloseRunsheet(customerId, washNumber);
-                    this.render();
-                } catch (error) {
-                    console.error("Error updating wash status:", error);
-                }
-            },
-
-            async checkAndCloseRunsheet(customerId, washNumber) {
-                // Find all runsheets containing this order
-                const relevantRunsheets = this.runsheets.filter(runsheet => 
-                    runsheet.orders.some(order => order.customerId === customerId && order.washNumber === washNumber)
-                );
-
-                for (const runsheet of relevantRunsheets) {
-                    if (runsheet.closed) continue;
-                    
-                    let allDelivered = true;
-                    for (const order of runsheet.orders) {
-                        const customer = this.customers.find(c => c.id === order.customerId);
-                        if (!customer) {
-                            allDelivered = false;
-                            break;
-                        }
-                        const wash = customer.washes.find(w => w.washNumber === order.washNumber);
-                        if (!wash || wash.status !== 'delivered') {
-                            allDelivered = false;
-                            break;
-                        }
-                    }
-
-                    if (allDelivered) {
-                        await db.collection('runsheets').doc(runsheet.id).update({
-                            closed: true,
-                            closedAt: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                        // Update local state
-                        const runsheetIndex = this.runsheets.findIndex(r => r.id === runsheet.id);
-                        if (runsheetIndex !== -1) {
-                            this.runsheets[runsheetIndex] = { ...runsheet, closed: true, closedAt: new Date().toISOString() };
-                        }
-                    }
-                }
-            },
-
             generateCode() {
                 return Math.floor(1000 + Math.random() * 9000).toString();
             },
 
-            sendWhatsAppNotification(phone, customerName, washNumber, type, code, completedWashes) {
-                navigator.clipboard.writeText(code).then(() => {
-                    this.copiedCode = code;
-                    this.render();
-                    setTimeout(() => {
-                        this.copiedCode = null;
-                        this.render();
-                    }, 2000);
-                });
-
-                let cleanPhone = phone.replace(/[^0-9]/g, '');
-                if (!cleanPhone.startsWith('91') && cleanPhone.length === 10) {
-                    cleanPhone = '91' + cleanPhone;
-                }
-                const currentDate = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                let message;
-                if (type === 'pickup') {
-                    message = `PURPLE COW LAUNDRY\nHello ${customerName}!\nPICKUP CONFIRMED!\nOrder ID: ${code}\nWash Number: ${washNumber}/10\nProgress: ${completedWashes}/10\nCompleted: ${currentDate}\n\nYour clothes are now in our care!\nPremium wash & dry service\nWe'll notify you for delivery\nTrack your order with ID: ${code}\n\nThank you for choosing Purple Cow!`;
-                } else if (type === 'delivery') {
-                    const remainingWashes = 10 - completedWashes;
-                    const completionBonus = completedWashes === 10 ? "🎉 CONGRATULATIONS! All 10 washes completed! 🎉" : `Remaining: ${remainingWashes} more to go!`;
-                    message = `PURPLE COW LAUNDRY\nHello ${customerName}!\nDELIVERY COMPLETED! ✅\nOrder ID: ${code}\nWash Number: ${washNumber}/10\nProgress: ${completedWashes}/10\nCompleted: ${currentDate}\n\nYour fresh, clean laundry is delivered!\nWashed, dried & neatly folded 😊\n\nHope you love our service\n${completionBonus}\n\nThank you for trusting Purple Cow!\nCall us anytime for next pickup!`;
-                }
-                const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
-                window.open(whatsappUrl, '_blank');
-            },
-
             getStatusColor(status) {
-                switch (status) {
-                    case 'pending': return 'bg-gray-200 text-gray-700';
-                    case 'picked-up': return 'bg-blue-500 text-white';
-                    case 'ofd': return 'bg-orange-500 text-white';
-                    case 'delivered': return 'bg-green-500 text-white';
-                    default: return 'bg-gray-200 text-gray-700';
-                }
+                const colors = {
+                    'pending': 'bg-gray-200 text-gray-700',
+                    'picked-up': 'bg-blue-500 text-white',
+                    'ofd': 'bg-orange-500 text-white',
+                    'delivered': 'bg-green-500 text-white'
+                };
+                return colors[status] || 'bg-gray-200 text-gray-700';
             },
 
             getCompletedWashes(customer) {
-                return customer.washes.filter(w => w.status === 'delivered').length;
+                return customer.washes ? customer.washes.filter(w => w.status === 'delivered').length : 0;
             },
 
             getFilteredCustomers() {
@@ -358,186 +166,301 @@
                 );
             },
 
-            copyCode(code) {
-                navigator.clipboard.writeText(code).then(() => {
-                    this.copiedCode = code;
-                    this.render();
-                    setTimeout(() => {
-                        this.copiedCode = null;
-                        this.render();
-                    }, 2000);
-                });
-            },
-
-            getRunsheetStatus(runsheet) {
-                if (runsheet.closed) return 'Closed';
-                let deliveredCount = 0;
-                for (const order of runsheet.orders) {
-                    const customer = this.customers.find(c => c.id === order.customerId);
-                    if (customer) {
-                        const wash = customer.washes.find(w => w.washNumber === order.washNumber);
-                        if (wash && wash.status === 'delivered') deliveredCount++;
-                    }
-                }
-                return `${deliveredCount}/${runsheet.orders.length} Delivered`;
-            },
-
             render() {
                 const root = document.getElementById('root');
                 const filteredCustomers = this.getFilteredCustomers();
-                
+
                 root.innerHTML = `
                     <div class="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-4">
                         ${this.copiedCode ? `
                             <div class="fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 z-50 animate-bounce">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                                 </svg>
                                 <span class="font-semibold">Order ID ${this.copiedCode} Copied!</span>
                             </div>
                         ` : ''}
-                        
+
                         ${this.loading ? `
                             <div class="min-h-screen flex items-center justify-center">
                                 <div class="text-center">
                                     <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-500 mx-auto mb-4"></div>
-                                    <p class="text-gray-300 text-lg">Loading your data...</p>
+                                    <p class="text-gray-300 text-lg">Loading Purple Cow Laundry Tracker...</p>
+                                    <p class="text-gray-500 text-sm mt-2">Firebase: ${firebaseInitialized ? '✅ Connected' : '❌ Offline'}</p>
                                 </div>
                             </div>
                         ` : `
-                            <div class="max-w-7xl mx-auto">
+                            <div class="max-w-7xl mx-auto space-y-6">
                                 <!-- Header -->
-                                <div class="bg-gray-800 rounded-lg shadow-2xl p-6 mb-6 border border-purple-500/30">
-                                    <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
+                                <div class="bg-gray-800 rounded-xl shadow-2xl p-6 border border-purple-500/30">
+                                    <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
                                         <div>
-                                            <h1 class="text-3xl font-bold text-purple-400 flex items-center gap-2">
-                                                Purple Cow Laundry Tracker
+                                            <h1 class="text-4xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent mb-2">
+                                                🐄 Purple Cow Laundry
                                             </h1>
-                                            <p class="text-gray-300 mt-1">Complete workflow: Riders → Runsheets → OFD → Delivery</p>
+                                            <p class="text-gray-300 text-lg">Complete workflow: Riders → Runsheets → OFD → Delivery</p>
+                                        </div>
+                                        <div class="text-right">
+                                            <div class="text-2xl font-bold text-green-400 mb-1">Ready</div>
+                                            <div class="flex items-center gap-4 text-sm text-gray-300">
+                                                <span>Riders: ${this.riders.length}</span>
+                                                <span>Customers: ${this.customers.length}</span>
+                                                <span>Active Runsheets: ${this.runsheets.filter(r => !r.closed).length}</span>
+                                            </div>
                                         </div>
                                     </div>
-                                    <div class="flex flex-wrap gap-3">
+
+                                    <!-- Action Buttons -->
+                                    <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
                                         <button onclick="App.showAddRider = !App.showAddRider; App.render();" 
-                                                class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition shadow-lg">
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
-                                            </svg>
-                                            Add Rider
+                                                class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition-all transform hover:scale-105">
+                                            👤 Add Rider
                                         </button>
                                         <button onclick="App.toggleRunsheetMode()" 
-                                                class="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition shadow-lg ${this.showCreateRunsheet ? 'ring-2 ring-yellow-400' : ''}">
-                                            ${this.showCreateRunsheet ? 'Cancel' : 'Create'} Runsheet
+                                                class="bg-yellow-600 hover:bg-yellow-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition-all transform hover:scale-105 ${this.showCreateRunsheet ? 'ring-2 ring-yellow-400 animate-pulse' : ''}">
+                                            📋 ${this.showCreateRunsheet ? 'Cancel' : 'Create'} Runsheet
                                         </button>
                                         <button onclick="App.showRunsheetDashboard = !App.showRunsheetDashboard; App.render();" 
-                                                class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition shadow-lg ${this.showRunsheetDashboard ? 'ring-2 ring-green-400' : ''}">
-                                            ${this.showRunsheetDashboard ? 'Hide' : 'Show'} Runsheet Dashboard
+                                                class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition-all transform hover:scale-105">
+                                            📊 ${this.showRunsheetDashboard ? 'Hide' : 'Show'} Dashboard
                                         </button>
                                         <button onclick="App.showAddCustomer = !App.showAddCustomer; App.render();" 
-                                                class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition shadow-lg">
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
-                                            </svg>
-                                            Add Customer
+                                                class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition-all transform hover:scale-105">
+                                            ➕ Add Customer
                                         </button>
                                     </div>
-                                    <div class="flex items-center gap-4 text-sm text-gray-300 mt-4">
-                                        <span>Riders: ${this.riders.length}</span>
-                                        <span>Customers: ${this.customers.length}</span>
-                                        <span>Runsheets: ${this.runsheets.filter(r => !r.closed).length} Active / ${this.runsheets.filter(r => r.closed).length} Closed</span>
-                                    </div>
                                 </div>
 
-                                <div class="relative mt-4">
-                                    <svg class="absolute left-3 top-3 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <!-- Search -->
+                                <div class="relative">
+                                    <svg class="absolute left-4 top-4 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
                                     </svg>
-                                    <input type="text" placeholder="Search by name or phone..." 
+                                    <input type="text" placeholder="🔍 Search customers by name or phone..." 
                                            value="${this.searchTerm}" 
                                            oninput="App.searchTerm = this.value; App.render()"
-                                           class="w-full pl-10 pr-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-gray-400">
+                                           class="w-full pl-12 pr-4 py-4 bg-gray-800 border-2 border-gray-700 rounded-xl focus:ring-4 focus:ring-purple-500 focus:border-purple-500 text-white placeholder-gray-400 text-lg shadow-lg">
                                 </div>
 
-                                <!-- Add Rider Form -->
-                                ${this.showAddRider ? `
-                                    <div class="bg-gray-800 rounded-lg shadow-2xl p-6 mb-6 border border-indigo-500/30">
-                                        <h2 class="text-xl font-bold text-indigo-400 mb-4">Add New Rider</h2>
-                                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-300 mb-2">Rider Name</label>
-                                                <input type="text" value="${this.newRider.name}" oninput="App.newRider.name = this.value" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 text-white">
-                                            </div>
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-300 mb-2">Phone</label>
-                                                <input type="tel" value="${this.newRider.phone}" oninput="App.newRider.phone = this.value" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 text-white">
-                                            </div>
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-300 mb-2">Vehicle No.</label>
-                                                <input type="text" value="${this.newRider.vehicle}" oninput="App.newRider.vehicle = this.value" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 text-white">
-                                            </div>
+                                <!-- Runsheet Dashboard -->
+                                ${this.showRunsheetDashboard ? `
+                                    <div class="bg-gray-800 rounded-xl shadow-2xl p-6 border border-green-500/30">
+                                        <h2 class="text-2xl font-bold text-green-400 mb-6 flex items-center gap-3">
+                                            📊 Runsheet Dashboard
+                                            <span class="bg-green-500/20 px-3 py-1 rounded-full text-sm">Active: ${this.runsheets.filter(r => !r.closed).length}</span>
+                                        </h2>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                            ${this.runsheets.slice(0, 9).map(runsheet => {
+                                                const deliveredCount = runsheet.orders.reduce((count, order) => {
+                                                    const customer = this.customers.find(c => c.id === order.customerId);
+                                                    const wash = customer?.washes?.find(w => w.washNumber === order.washNumber);
+                                                    return wash?.status === 'delivered' ? count + 1 : count;
+                                                }, 0);
+                                                const progress = Math.round((deliveredCount / runsheet.orders.length) * 100);
+                                                const rider = runsheet.rider || {};
+                                                return `
+                                                    <div class="bg-gray-900 border-2 ${runsheet.closed ? 'border-green-500' : 'border-yellow-500'} rounded-xl p-6 hover:shadow-2xl transition-all">
+                                                        <div class="flex justify-between items-start mb-4">
+                                                            <h3 class="font-bold text-xl text-yellow-400">${runsheet.runsheetId || 'RS-' + runsheet.id.slice(-6)}</h3>
+                                                            <span class="px-3 py-1 rounded-full text-xs font-bold ${
+                                                                runsheet.closed ? 'bg-green-500 text-white' : 
+                                                                progress === 100 ? 'bg-blue-500 text-white' : 'bg-orange-500 text-white'
+                                                            }">${runsheet.closed ? '✅ CLOSED' : `${deliveredCount}/${runsheet.orders.length} Delivered`}</span>
+                                                        </div>
+                                                        <div class="space-y-2 mb-4">
+                                                            <div><span class="text-gray-400">👤 Rider:</span> ${rider.name || 'N/A'} (${rider.vehicle || ''})</div>
+                                                            <div><span class="text-gray-400">📅 Date:</span> ${runsheet.date || 'N/A'}</div>
+                                                            <div><span class="text-gray-400">📦 Type:</span> <span class="px-2 py-1 bg-blue-500 text-white rounded text-sm">${runsheet.type?.toUpperCase()}</span></div>
+                                                        </div>
+                                                        <div class="w-full bg-gray-700 rounded-full h-2">
+                                                            <div class="bg-gradient-to-r from-green-400 to-blue-500 h-2 rounded-full transition-all" style="width: ${progress}%"></div>
+                                                        </div>
+                                                        <div class="text-right mt-3 text-sm text-gray-400">${progress}% Complete</div>
+                                                    </div>
+                                                `;
+                                            }).join('')}
                                         </div>
-                                        <div class="flex gap-3 mt-4">
-                                            <button onclick="App.addRider()" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition shadow-lg">Save Rider</button>
-                                            <button onclick="App.showAddRider = false; App.render();" class="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg transition">Cancel</button>
-                                        </div>
+                                        ${this.runsheets.length > 9 ? `<div class="text-center mt-4 text-gray-400">+${this.runsheets.length - 9} more runsheets...</div>` : ''}
                                     </div>
                                 ` : ''}
 
-                                <!-- Create Runsheet Form -->
-                                ${this.showCreateRunsheet ? `
-                                    <div class="bg-gray-800 rounded-lg shadow-2xl p-6 mb-6 border border-yellow-500/30">
-                                        <h2 class="text-xl font-bold text-yellow-400 mb-4">Create New Runsheet</h2>
-                                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-300 mb-2">Rider</label>
-                                                <select value="${this.runsheet.riderId}" onchange="App.runsheet.riderId = this.value; App.render()" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 text-white">
-                                                    <option value="">Select Rider</option>
-                                                    ${this.riders.map(rider => `<option value="${rider.id}">${rider.name} - ${rider.vehicle}</option>`).join('')}
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-300 mb-2">Type</label>
-                                                <select value="${this.runsheet.type}" onchange="App.runsheet.type = this.value; App.render()" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 text-white">
-                                                    <option value="pickup">Pickup</option>
-                                                    <option value="delivery">Delivery</option>
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-300 mb-2">Date</label>
-                                                <input type="date" value="${this.runsheet.date}" onchange="App.runsheet.date = this.value" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 text-white">
-                                            </div>
-                                            <div class="flex items-end">
-                                                <div class="bg-yellow-600 text-white px-6 py-3 rounded-lg font-bold shadow-lg">
-                                                    ${this.runsheet.selectedOrders.length} Orders
+                                <!-- Customer List -->
+                                ${filteredCustomers.length === 0 ? `
+                                    <div class="bg-gray-800 rounded-xl shadow-2xl p-12 text-center border-2 border-purple-500/30">
+                                        <svg class="w-24 h-24 mx-auto text-gray-600 mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                        </svg>
+                                        <h3 class="text-2xl font-semibold text-gray-300 mb-2">No Customers Yet</h3>
+                                        <p class="text-gray-400 text-lg">Click "Add Customer" to get started!</p>
+                                    </div>
+                                ` : `
+                                    <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                                        ${filteredCustomers.map(customer => {
+                                            const completedWashes = this.getCompletedWashes(customer);
+                                            const progressPercent = Math.round((completedWashes / 10) * 100);
+                                            return `
+                                                <div class="bg-gray-800 rounded-xl shadow-2xl p-6 border-2 border-purple-500/30 hover:shadow-3xl transition-all">
+                                                    <div class="flex items-start justify-between mb-4 pb-4 border-b border-gray-700">
+                                                        <div>
+                                                            <h3 class="text-xl font-bold text-purple-400">${customer.name}</h3>
+                                                            <p class="text-gray-300 flex items-center gap-2 mt-1">
+                                                                📱 ${customer.phone}
+                                                            </p>
+                                                            ${customer.address ? `
+                                                                <div class="flex items-center gap-2 mt-2">
+                                                                    <span class="text-gray-400">🏠</span>
+                                                                    <span class="text-gray-300">${customer.address}</span>
+                                                                    <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(customer.address)}" target="_blank" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs flex items-center gap-1 transition">🗺️ Navigate</a>
+                                                                </div>
+                                                            ` : ''}
+                                                            <p class="text-gray-300 flex items-center gap-2 mt-1 text-sm">
+                                                                🗓️ Started: ${customer.startDate}
+                                                            </p>
+                                                        </div>
+                                                        <div class="text-right">
+                                                            <div class="bg-purple-600 text-white px-4 py-2 rounded-lg font-bold shadow-lg">₹${customer.plan}</div>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <div class="mb-6">
+                                                        <div class="flex justify-between text-sm text-gray-300 mb-2">
+                                                            <span>Progress</span>
+                                                            <span class="font-semibold">${completedWashes}/10</span>
+                                                        </div>
+                                                        <div class="w-full bg-gray-700 rounded-full h-3">
+                                                            <div class="bg-gradient-to-r from-purple-500 to-blue-500 h-3 rounded-full transition-all duration-500 shadow-lg" style="width: ${progressPercent}%"></div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                                                        ${customer.washes ? customer.washes.map(wash => {
+                                                            const isSelectable = this.showCreateRunsheet && ['pending', 'picked-up'].includes(wash.status);
+                                                            const isSelected = this.runsheet.selectedOrders.some(o => o.customerId === customer.id && o.washNumber === wash.washNumber);
+                                                            return `
+                                                                <div class="border-2 border-gray-600 rounded-lg p-3 bg-gray-700/50 relative ${isSelectable ? 'ring-2 ring-yellow-500/50' : ''}">
+                                                                    ${isSelectable ? `
+                                                                        <div class="absolute -top-2 -right-2">
+                                                                            <input type="checkbox" ${isSelected ? 'checked' : ''} 
+                                                                                   onchange="App.selectOrder('${customer.id}', ${wash.washNumber})" 
+                                                                                   class="w-5 h-5 text-yellow-500 bg-gray-700 border-gray-600 rounded focus:ring-yellow-500">
+                                                                        </div>
+                                                                    ` : ''}
+                                                                    <div class="text-center mb-2">
+                                                                        <span class="font-bold text-purple-300">Wash ${wash.washNumber}</span>
+                                                                    </div>
+                                                                    <div class="${this.getStatusColor(wash.status)} px-2 py-1 rounded text-xs text-center mb-2 font-semibold">
+                                                                        ${wash.status.toUpperCase()}
+                                                                    </div>
+                                                                    ${wash.status === 'pending' ? `
+                                                                        <button onclick="App.updateWashStatus('${customer.id}', ${wash.washNumber}, 'picked-up', 'pickup')"
+                                                                                class="w-full bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs flex items-center justify-center gap-1 transition shadow-md">
+                                                                            🚚 Pickup
+                                                                        </button>
+                                                                    ` : ''}
+                                                                    ${wash.status === 'picked-up' || wash.status === 'ofd' ? `
+                                                                        ${wash.pickupCode ? `
+                                                                            <div onclick="App.copyCode('${wash.pickupCode}')" 
+                                                                                 class="text-xs bg-blue-600 text-white px-2 py-1 rounded font-bold mb-1 cursor-pointer hover:bg-blue-700 transition flex items-center justify-center gap-1 text-center" 
+                                                                                 title="Click to copy">
+                                                                                📱 ${wash.pickupCode}
+                                                                            </div>
+                                                                        ` : ''}
+                                                                        ${wash.pickupDate ? `<div class="text-xs text-gray-300 mb-1">📅 ${wash.pickupDate}</div>` : ''}
+                                                                        ${wash.status === 'ofd' && wash.ofdComment ? `
+                                                                            <div class="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded mb-2 max-h-12 overflow-y-auto">
+                                                                                💬 ${wash.ofdComment}
+                                                                            </div>
+                                                                        ` : ''}
+                                                                        <button onclick="App.updateWashStatus('${customer.id}', ${wash.washNumber}, 'delivered', 'delivery')"
+                                                                                class="w-full bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs flex items-center justify-center gap-1 transition shadow-md">
+                                                                            ✅ Deliver
+                                                                        </button>
+                                                                    ` : ''}
+                                                                    ${wash.status === 'delivered' ? `
+                                                                        <div class="text-xs text-gray-300 space-y-1">
+                                                                            ${wash.pickupCode ? `
+                                                                                <div onclick="App.copyCode('${wash.pickupCode}')" 
+                                                                                     class="bg-blue-600 text-white px-2 py-1 rounded font-bold cursor-pointer hover:bg-blue-700 transition flex items-center justify-center gap-1">
+                                                                                    📱 ${wash.pickupCode}
+                                                                                </div>
+                                                                            ` : ''}
+                                                                            ${wash.pickupDate ? `<div>📅 Pickup: ${wash.pickupDate}</div>` : ''}
+                                                                            ${wash.deliveryCode ? `
+                                                                                <div onclick="App.copyCode('${wash.deliveryCode}')" 
+                                                                                     class="bg-green-600 text-white px-2 py-1 rounded font-bold mt-2 cursor-pointer hover:bg-green-700 transition flex items-center justify-center gap-1">
+                                                                                    📦 ${wash.deliveryCode}
+                                                                                </div>
+                                                                            ` : ''}
+                                                                            ${wash.deliveryDate ? `<div>✅ Delivered: ${wash.deliveryDate}</div>` : ''}
+                                                                        </div>
+                                                                    ` : ''}
+                                                                </div>
+                                                            `;
+                                                        }).join('') : '<div class="col-span-full text-gray-500 text-center py-8">No wash data</div>'}
+                                                    </div>
+                                                    ${completedWashes === 10 ? `
+                                                        <div class="mt-4 bg-gradient-to-r from-green-600 to-blue-600 text-white px-6 py-3 rounded-xl text-center font-bold shadow-lg">
+                                                            🎉 All 10 Washes Completed!
+                                                        </div>
+                                                    ` : ''}
                                                 </div>
-                                            </div>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                `}
+
+                                <!-- Forms -->
+                                ${this.showAddRider ? `
+                                    <div class="bg-gray-800 rounded-xl shadow-2xl p-8 border-2 border-indigo-500/30">
+                                        <h2 class="text-2xl font-bold text-indigo-400 mb-6">👤 Add New Rider</h2>
+                                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                            <div><label class="block text-sm font-medium text-gray-300 mb-3">Name</label><input type="text" value="${this.newRider.name}" oninput="App.newRider.name = this.value" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 text-white text-lg"></div>
+                                            <div><label class="block text-sm font-medium text-gray-300 mb-3">Phone</label><input type="tel" value="${this.newRider.phone}" oninput="App.newRider.phone = this.value" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 text-white text-lg"></div>
+                                            <div><label class="block text-sm font-medium text-gray-300 mb-3">Vehicle</label><input type="text" value="${this.newRider.vehicle}" oninput="App.newRider.vehicle = this.value" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 text-white text-lg"></div>
                                         </div>
-                                        <div class="flex gap-3">
-                                            <button onclick="App.createRunsheet()" class="bg-yellow-600 hover:bg-yellow-700 text-white px-8 py-3 rounded-lg font-bold shadow-lg">Create & Print Runsheet</button>
-                                            <button onclick="App.toggleRunsheetMode()" class="bg-gray-600 hover:bg-gray-700 text-white px-6 py-3 rounded-lg">Cancel</button>
+                                        <div class="flex gap-4 mt-8">
+                                            <button onclick="App.addRider()" class="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-xl font-bold text-lg shadow-lg transition transform hover:scale-105 flex-1">💾 Save Rider</button>
+                                            <button onclick="App.showAddRider = false; App.render();" class="bg-gray-600 hover:bg-gray-700 text-white px-8 py-3 rounded-xl font-bold text-lg shadow-lg transition flex-1">❌ Cancel</button>
                                         </div>
                                     </div>
                                 ` : ''}
 
-                                <!-- Add Customer Form -->
-                                ${this.showAddCustomer ? `
-                                    <div class="bg-gray-800 rounded-lg shadow-2xl p-6 mb-6 border border-purple-500/30">
-                                        <h2 class="text-xl font-bold text-purple-400 mb-4">Add New Customer</h2>
-                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-300 mb-2">Customer Name</label>
-                                                <input type="text" value="${this.newCustomer.name}" oninput="App.newCustomer.name = this.value" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white">
-                                            </div>
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-300 mb-2">Phone Number</label>
-                                                <input type="tel" value="${this.newCustomer.phone}" oninput="App.newCustomer.phone = this.value" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white">
-                                            </div>
-                                            <div class="md:col-span-2">
-                                                <label class="block text-sm font-medium text-gray-300 mb-2">Address</label>
-                                                <input type="text" value="${this.newCustomer.address}" oninput="App.newCustomer.address = this.value" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white">
-                                            </div>
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-300 mb-2">Start Date</label>
-                                                <input type="date" value="${this.newCustomer.startDate}" onchange="App.newCustomer.startDate = this.value" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 text-white">
-                                            </div>
-                                            <div>
-                                                <label class="block
+                                ${this.showCreateRunsheet ? `
+                                    <div class="bg-gray-800 rounded-xl shadow-2xl p-8 border-2 border-yellow-500/30">
+                                        <h2 class="text-2xl font-bold text-yellow-400 mb-6">📋 Create New Runsheet</h2>
+                                        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                                            <div><label class="block text-sm font-medium text-gray-300 mb-3">Rider</label><select value="${this.runsheet.riderId}" onchange="App.runsheet.riderId = this.value; App.render()" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 text-white text-lg"><option value="">Select Rider</option>${this.riders.map(r => `<option value="${r.id}">${r.name} - ${r.vehicle}</option>`).join('')}</select></div>
+                                            <div><label class="block text-sm font-medium text-gray-300 mb-3">Type</label><select value="${this.runsheet.type}" onchange="App.runsheet.type = this.value; App.render()" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 text-white text-lg"><option value="pickup">Pickup</option><option value="delivery">Delivery</option></select></div>
+                                            <div><label class="block text-sm font-medium text-gray-300 mb-3">Date</label><input type="date" value="${this.runsheet.date}" onchange="App.runsheet.date = this.value" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 text-white text-lg"></div>
+                                            <div class="flex items-end"><div class="bg-yellow-600 text-white px-8 py-4 rounded-xl font-bold text-xl shadow-lg">${this.runsheet.selectedOrders.length} Orders</div></div>
+                                        </div>
+                                        <div class="flex gap-4">
+                                            <button onclick="App.createRunsheet()" class="bg-yellow-600 hover:bg-yellow-700 text-white px-10 py-4 rounded-xl font-bold text-xl shadow-lg transition transform hover:scale-105 flex-1">🖨️ Create & Print</button>
+                                            <button onclick="App.toggleRunsheetMode()" class="bg-gray-600 hover:bg-gray-700 text-white px-10 py-4 rounded-xl font-bold text-xl shadow-lg transition flex-1">❌ Cancel</button>
+                                        </div>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `}
+                    </div>
+                `;
+
+                // Auto-print runsheet if needed
+                if (this.printRunsheetId) {
+                    setTimeout(() => window.print(), 1000);
+                    this.printRunsheetId = null;
+                }
+            }
+        };
+
+        // Initialize app when DOM is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log("🎯 DOM loaded, initializing app...");
+            App.init();
+        });
+
+        // Also init immediately for faster loading
+        App.init();
+    </script>
+</body>
+</html>
