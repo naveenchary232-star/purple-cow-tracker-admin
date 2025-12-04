@@ -44,8 +44,17 @@
       db = firebase.firestore();
       firebaseInitialized = true;
       console.log('✅ Firebase initialized successfully');
+      
+      // Test connection immediately
+      db.collection('customers').limit(1).get()
+        .then(() => console.log('✅ Firestore connection test successful'))
+        .catch(err => {
+          console.error('❌ Firestore connection test failed:', err);
+          alert('⚠️ Database connection issue. Please check:\n1. Internet connection\n2. Firestore security rules\n3. Browser console for errors');
+        });
     } catch (error) {
       console.error('❌ Firebase initialization error:', error);
+      alert('❌ Firebase failed to initialize. Check console for details.');
     }
 
     // ============================================
@@ -590,7 +599,7 @@ ${completionBonus}━━━━━━━━━━━━━━━━━━━━
                             `).join('')}
                           </div>
 
-                          ${completedWashes === 10 ? `
+                          ${this.getCompletedWashes(customer) === 10 ? `
                             <div class="mt-4 bg-gradient-to-r from-green-600 to-blue-600 text-white px-4 py-3 rounded-lg text-center font-bold shadow-lg">
                               🎉 All 10 Washes Completed! 🎉
                             </div>
